@@ -1,0 +1,15 @@
+﻿node_modules/
+.next/
+out/
+build/
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+dados/
+dist-app/
+motor/runtime/
+impressora/impressora.exe
+**/__pycache__/
+.pytest_cache/

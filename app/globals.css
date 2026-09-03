@@ -1,0 +1,271 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 é configurado no próprio CSS: não existe mais tailwind.config.
+ *
+ * A casa só tem um tema, o escuro, então as cores entram direto em "@theme
+ * inline" apontando para variáveis fixas no :root. Não existe alternância.
+ */
+
+@theme inline {
+  --color-bg: rgb(var(--bg));
+  --color-surface: rgb(var(--surface));
+  --color-elevated: rgb(var(--elevated));
+  --color-line: rgb(var(--line));
+  --color-ink: rgb(var(--ink));
+  --color-muted: rgb(var(--muted));
+  --color-brand: rgb(var(--brand));
+  --color-brand2: rgb(var(--brand2));
+
+  --font-sans: var(--font-sans-stack);
+
+  --radius-xl: 0.9rem;
+  --radius-2xl: 1.25rem;
+
+  --animate-fade-up: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root {
+  --font-sans-stack: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --bg: 7 15 11;
+  --surface: 14 25 19;
+  --elevated: 21 35 27;
+  --line: 36 57 44;
+  --ink: 231 243 235;
+  --muted: 133 158 143;
+  --brand: 52 211 153;
+  --brand2: 163 230 53;
+  --glow: 52 211 153;
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Aurora de fundo: puramente decorativa, não intercepta cliques. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.aurora::before,
+.aurora::after {
+  content: '';
+  position: absolute;
+  width: 46rem;
+  height: 46rem;
+  border-radius: 9999px;
+  filter: blur(120px);
+  opacity: 0.22;
+}
+
+.aurora::before {
+  top: -18rem;
+  left: -10rem;
+  background: rgb(var(--brand));
+  opacity: 0.28;
+}
+
+.aurora::after {
+  top: -12rem;
+  right: -14rem;
+  background: rgb(var(--brand2));
+  opacity: 0.14;
+}
+
+@layer components {
+  /* Fundo opaco de propósito: backdrop-filter em dezenas de cards empilhados
+     rende caixas em branco em rasterização por software e em GPUs antigas. */
+  .card {
+    @apply relative rounded-2xl border bg-surface;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 8px 24px -16px rgb(0 0 0 / 0.25);
+  }
+
+  /* Fio de luz na borda de cima. É o que dá relevo no escuro sem usar sombra
+     pesada, que no fundo quase preto vira só um borrão. */
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding-top: 1px;
+    background: linear-gradient(to bottom, rgb(255 255 255 / 0.07), transparent 40%);
+    pointer-events: none;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* Os três variantes compartilham a base pelo seletor, e não por `@apply btn`:
+     no v4 o `@apply` de classe própria é frágil. */
+  .btn,
+  .btn-primary,
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium
+           transition-all duration-200 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-primary {
+    @apply text-white shadow-lg;
+    background-image: linear-gradient(120deg, rgb(var(--brand)), rgb(var(--brand2)));
+    box-shadow: 0 10px 30px -12px rgb(var(--glow) / 0.85);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 38px -12px rgb(var(--glow) / 0.95);
+  }
+
+  .btn-ghost {
+    @apply border bg-surface text-ink hover:bg-elevated;
+  }
+
+  .field-label {
+    @apply block text-[13px] font-medium text-ink;
+  }
+
+  .input {
+    @apply w-full rounded-xl border bg-bg/60 px-3.5 py-2.5 text-sm text-ink outline-none
+           transition placeholder:text-muted/70;
+  }
+
+  .input:focus {
+    border-color: rgb(var(--brand));
+    box-shadow: 0 0 0 3px rgb(var(--brand) / 0.16);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted;
+  }
+}
+
+/*
+ * Aplicativo de desktop: uma cor só.
+ *
+ * No site o degradê e o brilho ajudam a vender. Numa ferramenta que a pessoa
+ * abre dez vezes por dia eles só cansam, então aqui o botão é chapado e o
+ * relevo dos cards sai de cena.
+ */
+.app-shell .btn-primary {
+  background-image: none;
+  background-color: rgb(var(--brand));
+  color: rgb(var(--bg));
+  box-shadow: none;
+}
+
+.app-shell .btn-primary:hover:not(:disabled) {
+  transform: none;
+  background-color: rgb(var(--brand2));
+  box-shadow: none;
+}
+
+.app-shell .card {
+  box-shadow: none;
+}
+
+.app-shell .card::before {
+  display: none;
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgb(var(--line));
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: rgb(var(--brand));
+  border: 2px solid rgb(var(--surface));
+  box-shadow: 0 2px 8px rgb(var(--glow) / 0.5);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: rgb(var(--brand));
+  border: 2px solid rgb(var(--surface));
+  cursor: pointer;
+}
+
+::selection {
+  background: rgb(var(--brand) / 0.28);
+}
+
+/* Foco visível e consistente para quem navega pelo teclado. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Barra de rolagem no tom do tema, em vez do cinza padrão do sistema. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--line)) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 9999px;
+  border: 2px solid rgb(var(--bg));
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
