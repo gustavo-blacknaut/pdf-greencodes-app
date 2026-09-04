@@ -1,6 +1,6 @@
 # PDF.GreenCodes
 
-41 ferramentas de PDF que rodam inteiras na sua máquina. Sem upload, sem servidor, sem conta.
+52 ferramentas de PDF que rodam inteiras na sua máquina. Sem upload, sem servidor, sem conta.
 Roda como site em [pdf.greencodes.com.br](https://pdf.greencodes.com.br) e como aplicativo de
 desktop no Windows.
 
@@ -36,7 +36,7 @@ coisa que importa aqui — **o documento não sai da máquina em nenhum dos dois
 
 ---
 
-## As 41 ferramentas
+## As 52 ferramentas
 
 | Organizar | Editar | Converter | Otimizar e cor | Privacidade |
 |---|---|---|---|---|
@@ -53,8 +53,26 @@ coisa que importa aqui — **o documento não sai da máquina em nenhum dos dois
 | Separar pares e ímpares | | | | |
 | Páginas em branco | | | | |
 
-Mais **Imprimir**, que tem tela própria. *RGB para CMYK* só existe no aplicativo, porque depende do
-motor Python — no site a ferramenta nem aparece na lista.
+E a categoria **Gráfica**, que é o serviço entre a arte pronta e a máquina:
+
+| | |
+|---|---|
+| **Marcas de corte** | sangria e marca para a guilhotina |
+| **Cartão de visita** | enche a folha e marca as ruas para o corte |
+| **Etiquetas e adesivos** | a mesma grade, com a medida que você quiser |
+| **Numeração sequencial** | talão, ingresso, rifa e senha |
+| **Espelhar PDF** | sublimação, transfer e serigrafia |
+| **Repetir páginas** | a tiragem toda num arquivo só |
+| **Conferir antes de imprimir** | acha a foto borrada e a fonte que falta |
+| **Folha de fotos** | 3x4, passaporte, 5x7, polaroid, adesivo, revelação |
+| **Separar chapas** | cada cor sozinha, como vai para a chapa |
+| **Cobertura de tinta** | antes de o papel encharcar |
+
+Mais **Imprimir**, que tem tela própria. Quatro ferramentas só existem no aplicativo — *RGB para
+CMYK*, *Folha de fotos*, *Separar chapas* e *Cobertura de tinta* —, porque dependem do motor
+Python para ler a página em quatro canais. **No site elas nem aparecem na lista**: o site é 100%
+JavaScript e roda inteiro no navegador, e mostrar uma tela que não entrega o que promete seria pior
+que não ter a ferramenta.
 
 Quatro delas trabalham com uma **grade de miniaturas** em vez de formulário: organizar, remover,
 extrair e girar. Você vê o documento e clica nele. Outras duas abrem um **editor sobre a página**:
@@ -149,10 +167,30 @@ media pior.
 | Impressão | C# (.NET Framework) | É o único caminho até o driver da impressora. |
 
 **O motor.** Rasterizar página no pdf.js é lento. No mesmo arquivo de 141 páginas: **1189 ms por
-página no pdf.js contra 277 ms no PyMuPDF**, com o arquivo de saída do mesmo tamanho. Só as
-ferramentas que rasterizam passam por lá; as que mexem na estrutura do PDF continuam na janela,
-onde já eram rápidas. A conversa é por linhas de JSON no stdin/stdout de um processo só, que sobe
-uma vez e fica.
+página no pdf.js contra 277 ms no PyMuPDF**, com o arquivo de saída do mesmo tamanho.
+
+Mas o ganho maior estava escondido em outro lugar. Por muito tempo as ferramentas que só mexem na
+estrutura do PDF ficaram no JavaScript, porque "já eram rápidas". **Não eram.** O custo nunca
+esteve na operação: está no pdf-lib abrir e gravar o arquivo. Só abrir e gravar um documento de
+300 páginas, **sem fazer trabalho nenhum**, custa 7,0 s — 1,4 s para abrir e 5,6 s para gravar.
+
+| serviço completo, 300 páginas | JavaScript | Python | |
+|---|---|---|---|
+| cortar | 7057 ms | 428 ms | **16,5x** |
+| dividir | 7038 ms | 535 ms | **13,2x** |
+| numerar | 7382 ms | 771 ms | **9,6x** |
+| redimensionar | 7683 ms | 825 ms | **9,3x** |
+| inverter páginas | 7151 ms | 787 ms | **9,1x** |
+| marca d'água | 7337 ms | 820 ms | **9,0x** |
+| várias por folha | 7352 ms | 895 ms | **8,2x** |
+
+O tempo do Python já inclui gravar a entrada em disco, mandar pelo canal e ler o resultado de
+volta — é o que a pessoa espera de verdade, não o tempo da operação pura.
+
+O que continua no JavaScript não é o que é rápido: é o que o motor não sabe fazer. Proteger com
+permissões de impressão e cópia, dividir por tamanho, marca d'água ladrilhada, o editor e o OCR.
+Cada um desses tem uma guarda explícita dizendo por quê. A conversa é por linhas de JSON no
+stdin/stdout de um processo só, que sobe uma vez e fica.
 
 O Python vai embutido na instalação (distribuição *embeddable*), então **não é preciso ter Python
 na máquina**. Ele fica em `motor/runtime/`, que é ignorado pelo git — quem clona roda o script de
@@ -189,8 +227,8 @@ contrato de 200 KB continua com 200 KB, e não vira 40 MB de imagem.
 npm run dev          # desenvolvimento
 npm run build        # gera out/
 npm run preview      # serve out/ para conferir o build
-npm run verificar    # tamanho dos arquivos + typecheck + os 176 testes
-npm run motor        # os 205 testes do motor Python
+npm run verificar    # tamanho dos arquivos + typecheck + os 245 testes
+npm run motor        # os 251 testes do motor Python
 npm run impressora   # compila o executavel de impressao em C#
 ```
 
