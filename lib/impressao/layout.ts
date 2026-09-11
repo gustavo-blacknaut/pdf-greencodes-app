@@ -35,6 +35,29 @@ export function folhaEmMm(papel: string, deitada: boolean): Medida {
   return deitada ? { largura: medida.altura, altura: medida.largura } : { ...medida };
 }
 
+/**
+ * A beirada que o mecanismo da impressora não alcança, em milímetros, com a
+ * folha em pé — do jeito que o driver informa.
+ */
+export type BordaDaImpressora = { esquerda: number; cima: number; direita: number; baixo: number };
+
+/**
+ * A borda que não imprime, já na orientação da folha, igual nos dois lados.
+ *
+ * Igual de propósito: a arte continua centrada no papel, que é o que quem
+ * imprime espera, e não um milímetro puxada para o lado em que o mecanismo
+ * alcança mais.
+ */
+export function bordaNaFolha(
+  borda: BordaDaImpressora | undefined,
+  deitada: boolean,
+): { lados: number; cima: number } {
+  if (!borda) return { lados: 0, cima: 0 };
+  const lados = Math.min(Math.max(borda.esquerda || 0, borda.direita || 0, 0), 30);
+  const cima = Math.min(Math.max(borda.cima || 0, borda.baixo || 0, 0), 30);
+  return deitada ? { lados: cima, cima: lados } : { lados, cima };
+}
+
 export type ModoDeEscala =
   /** Cabe inteira dentro da margem, sem cortar nada. */
   | 'pagina'

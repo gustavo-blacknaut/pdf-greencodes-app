@@ -17,10 +17,10 @@ export const CHAVE_DAS_OPCOES = 'greencodes:impressao';
 export const OPCOES_PADRAO: OpcoesImpressao = {
   copias: 1,
   colorido: true,
+  orientacao: 'auto',
   paisagem: false,
   duplex: 'simplex',
   papel: 'A4',
-  dpi: 300,
 };
 
 export const ACEITA = [
@@ -55,6 +55,40 @@ export function lerOpcoesSalvas(): OpcoesImpressao {
   } catch {
     return OPCOES_PADRAO;
   }
+}
+
+/** Guarda as opções para a próxima vez — menos a beirada, que é da impressora. */
+export function guardarOpcoes(opcoes: OpcoesImpressao): void {
+  try {
+    const daPessoa = { ...opcoes };
+    delete daPessoa.bordaMm;
+    localStorage.setItem(CHAVE_DAS_OPCOES, JSON.stringify(daPessoa));
+  } catch {
+    /* modo anônimo: imprime do mesmo jeito */
+  }
+}
+
+/** Esquece as opções guardadas: a próxima impressão parte do padrão. */
+export function esquecerOpcoes(): void {
+  try {
+    localStorage.removeItem(CHAVE_DAS_OPCOES);
+  } catch {
+    /* nada guardado para esquecer */
+  }
+}
+
+/**
+ * A fila já foi toda impressa?
+ *
+ * É o que decide se um arquivo novo entra no fim da fila ou começa outra: a
+ * pessoa que imprimiu e escolhe outro arquivo quer imprimir **esse**, e não
+ * mandar de novo o que já saiu.
+ */
+export function filaTerminada(fila: { estado: string }[]): boolean {
+  return (
+    fila.some((i) => i.estado === 'impresso') &&
+    fila.every((i) => i.estado === 'impresso' || i.estado === 'erro')
+  );
 }
 
 let contador = 0;

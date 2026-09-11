@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Drawing.Printing;
 using System.Runtime.InteropServices;
 
@@ -74,7 +75,39 @@ static class Dispositivo
             campos.Add(Json.Campo("erro", Json.Texto(erro.Message)));
         }
 
+        // A borda que a impressora nao alcanca. Separado do resto porque
+        // impressora de rede desligada falha aqui, e o nome e o resto ainda
+        // servem.
+        try { campos.Add(Json.Campo("margens", Margens(nome))); }
+        catch { }
+
         return Json.Objeto(campos.ToArray());
+    }
+
+    /// A area imprimivel no papel padrao da impressora, como margem de cada
+    /// lado, em centesimos de polegada.
+    ///
+    /// E o que o navegador usa como margem "padrao": o quanto o mecanismo da
+    /// impressora nao consegue pintar perto da borda. A tela usa isto para a
+    /// arte nunca cair ali, e para mostrar na previa o que fica de fora.
+    static string Margens(string nome)
+    {
+        var ajustes = new PrinterSettings { PrinterName = nome };
+        PageSettings pagina = ajustes.DefaultPageSettings;
+        RectangleF area = pagina.PrintableArea;
+        float largura = pagina.Landscape ? pagina.PaperSize.Height : pagina.PaperSize.Width;
+        float altura = pagina.Landscape ? pagina.PaperSize.Width : pagina.PaperSize.Height;
+
+        return Json.Objeto(
+            Json.Campo("esquerda", Json.Numero(Positivo(area.X))),
+            Json.Campo("cima", Json.Numero(Positivo(area.Y))),
+            Json.Campo("direita", Json.Numero(Positivo(largura - area.Right))),
+            Json.Campo("baixo", Json.Numero(Positivo(altura - area.Bottom))));
+    }
+
+    static int Positivo(float valor)
+    {
+        return Math.Max(0, (int)Math.Round(valor));
     }
 
     static int Numero(string impressora, int recurso)

@@ -26,6 +26,12 @@ export type LoadedFile = {
    * só o motor Python, que abre pelo caminho, trabalha com ele.
    */
   caminho?: string;
+  /**
+   * De onde o arquivo lido inteiro veio, no aplicativo. Os bytes estão aqui
+   * também, mas o motor Python abre pelo disco: mandar de volta pela janela
+   * o que acabou de chegar dela é o que deixava arquivo grande lento.
+   */
+  origem?: string;
 };
 
 export type OutputFile = {

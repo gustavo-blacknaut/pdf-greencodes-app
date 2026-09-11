@@ -9,9 +9,11 @@ ai a reducao e grande mas a qualidade cai e o texto deixa de ser selecionavel.
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Any, Dict
 
 import pymupdf
+from pymupdf import mupdf
 
 from ..documento import abrir, nome_com_sufixo, salvar
 from ..protocolo import ErroDoUsuario, Pedido
@@ -34,6 +36,9 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
 
     nivel = str(pedido.opcao("nivel", "medio"))
     redesenhar = bool(pedido.opcao("redesenhar", False))
+    # "imagens" e o caminho do meio, e o padrao: so as fotos encolhem, o texto
+    # continua texto. E onde mora quase todo o peso de um PDF real.
+    so_imagens = str(pedido.opcao("modo", "")) == "imagens"
 
     origem = pedido.arquivos[0]
     senha = pedido.senha(0)
@@ -43,6 +48,9 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
     try:
         if redesenhar:
             resultado, paginas = _redesenhando(pedido, entrada, nivel)
+        elif so_imagens:
+            _recomprimindo_imagens(pedido, entrada)
+            resultado, paginas = entrada, entrada.page_count
         else:
             resultado, paginas = entrada, entrada.page_count
             pedido.andamento(0.5, "Reorganizando o arquivo")
@@ -60,13 +68,21 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
         notas.append("A senha do arquivo original foi mantida no resultado.")
 
     if bytes_saida >= bytes_entrada:
-        # Grava mesmo assim para nao deixar o usuario sem arquivo, mas nao
-        # finge que houve ganho.
+        # Nao entrega arquivo maior chamando de comprimido: o original volta
+        # por cima do resultado, e a nota diz por que.
+        shutil.copyfile(origem, destino)
+        bytes_saida = bytes_entrada
         notas.append(
             "Este PDF ja estava no menor tamanho que da para alcancar sem redesenhar. "
-            "O resultado nao ficou menor que o original."
+            "O resultado nao ficou menor, entao o original foi mantido."
             if not redesenhar
-            else "Nem redesenhando o arquivo ficou menor: as imagens ja estavam bem compactadas."
+            else "Nem redesenhando o arquivo ficou menor: as imagens ja estavam bem compactadas. "
+            "O original foi mantido."
+        )
+    elif so_imagens:
+        notas.append(
+            "As fotos foram reduzidas e recomprimidas. Texto, linhas e vetores continuam como estavam: "
+            "da para selecionar, pesquisar e imprimir nitido."
         )
     if redesenhar:
         notas.append("As paginas viraram imagem, entao o texto deixa de ser selecionavel e pesquisavel.")
@@ -80,6 +96,59 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
         "reducao": round(1 - bytes_saida / bytes_entrada, 4) if bytes_entrada else 0,
         "notas": notas,
     }
+
+
+def _recomprimindo_imagens(pedido: Pedido, entrada: pymupdf.Document) -> None:
+    """Encolhe as fotos que passam da resolucao pedida e recomprime em JPEG.
+
+    O limiar fica acima do alvo de proposito: uma foto a 160 DPI com alvo de
+    150 perderia qualidade para ganhar quase nada. So o que esta bem acima e
+    reduzido; o resto so e recomprimido quando o JPEG ficar menor.
+    """
+    dpi = int(pedido.opcao("dpi", 150))
+    qualidade = int(pedido.opcao("qualidade", 75))
+    limiar = int(dpi * 1.2)
+    pedido.andamento(0.2, "Reduzindo as imagens")
+
+    # As opcoes a mao, e nao os parametros simples do `rewrite_images`: eles
+    # reduzem pela media, que so divide por numero inteiro - uma foto a
+    # 480 DPI parava em 240 em vez de chegar nos 150 pedidos. O bicubico vai
+    # direto ao alvo.
+    #
+    # Foto (JPEG) volta como JPEG. Imagem sem perda - diagrama, print de tela,
+    # logo - encolhe mas continua sem perda no nivel recomendado: JPEG em
+    # traco fino deixa borrao em volta de cada linha. No forte vira JPEG.
+    opcoes = mupdf.PdfImageRewriterOptions()
+    opcoes.recompress_when = mupdf.FZ_RECOMPRESS_WHEN_SMALLER
+    sem_perda_vira_jpeg = qualidade < 70
+    for tipo in ("color", "gray"):
+        for perda in ("lossy", "lossless"):
+            prefixo = f"{tipo}_{perda}_image_"
+            setattr(opcoes, prefixo + "subsample_method", mupdf.FZ_SUBSAMPLE_BICUBIC)
+            setattr(opcoes, prefixo + "subsample_threshold", limiar)
+            setattr(opcoes, prefixo + "subsample_to", dpi)
+            jpeg = perda == "lossy" or sem_perda_vira_jpeg
+            setattr(
+                opcoes,
+                prefixo + "recompress_method",
+                mupdf.FZ_RECOMPRESS_JPEG if jpeg else mupdf.FZ_RECOMPRESS_LOSSLESS,
+            )
+            setattr(opcoes, prefixo + "recompress_quality", str(qualidade))
+    # Preto e branco puro (digitalizacao de texto) vira FAX, que e o menor
+    # formato para isso e nao borra nada.
+    opcoes.bitonal_image_recompress_method = mupdf.FZ_RECOMPRESS_FAX
+    opcoes.bitonal_image_subsample_method = mupdf.FZ_SUBSAMPLE_AVERAGE
+    opcoes.bitonal_image_subsample_threshold = max(limiar, 360)
+    opcoes.bitonal_image_subsample_to = max(dpi, 300)
+    entrada.rewrite_images(options=opcoes)
+    pedido.andamento(0.7, "Enxugando as fontes")
+    try:
+        # Fonte embutida inteira pesa centenas de KB; subconjunto so leva os
+        # caracteres usados. Fonte que nao se deixa recortar fica como estava.
+        entrada.subset_fonts()
+    except Exception:  # noqa: BLE001
+        pass
+    pedido.andamento(0.85, "Gravando")
 
 
 def _redesenhando(pedido: Pedido, entrada: pymupdf.Document, nivel: str) -> tuple[pymupdf.Document, int]:

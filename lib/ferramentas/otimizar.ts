@@ -28,11 +28,12 @@ export const OTIMIZAR: Tool[] = [
         key: 'level',
         type: 'select',
         label: 'Nível',
-        default: 'sem-perda',
+        default: 'recomendada',
         options: [
+          { value: 'recomendada', label: 'Recomendada', hint: 'fotos a 150 DPI · o texto continua texto' },
+          { value: 'forte', label: 'Forte', hint: 'fotos a 100 DPI · menor, ainda com texto de verdade' },
           { value: 'sem-perda', label: 'Sem perda', hint: 'não altera nem um pixel; reduz menos' },
-          { value: 'equilibrada', label: 'Equilibrada', hint: '150 DPI · páginas viram imagem, a cor pode mudar' },
-          { value: 'maxima', label: 'Máxima', hint: '110 DPI · menor arquivo, a cor pode mudar' },
+          { value: 'maxima', label: 'Máxima', hint: '110 DPI · as páginas viram imagem; o menor possível' },
         ],
       },
       {

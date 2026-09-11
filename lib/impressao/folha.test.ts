@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { planoDaFolha, pontosParaMm, resolucao, type Montagem } from './folha';
+import { avisoDaFolha, montarFolha, planoDaFolha, pontosParaMm, resolucao, type Montagem } from './folha';
 
 /**
  * O defeito que estes testes prendem: "está imprimindo um A5 no meio do A4".
@@ -126,17 +126,80 @@ describe('a arte cai onde deveria', () => {
 });
 
 describe('resolução', () => {
-  it('para em 300: acima disso a diferença não sai da tela', () => {
-    expect(resolucao(1200)).toBe(300);
+  it('para em 600: é a melhor que a impressora comum aproveita', () => {
+    expect(resolucao(1200)).toBe(600);
     expect(resolucao(150)).toBe(150);
   });
 
-  it('resolução sem sentido cai no padrão, e não no mínimo', () => {
+  it('resolução sem sentido cai no máximo, e não no mínimo', () => {
     // Zero não é uma resolução pequena: é a ausência de resolução. Tratá-lo
     // como 1 daria quinze metros de papel.
-    expect(resolucao(0)).toBe(300);
-    expect(resolucao(-5)).toBe(300);
-    expect(resolucao(undefined)).toBe(300);
+    expect(resolucao(0)).toBe(600);
+    expect(resolucao(-5)).toBe(600);
+    expect(resolucao(undefined)).toBe(600);
+  });
+
+  it('A4 sai a 600 DPI inteiros, e a A3 desce até caber no teto de pixels', () => {
+    const a4 = planoDaFolha(A4_EM_MM, montagem({ dpi: 600 }));
+    expect(a4.folha.largura).toBe(4961);
+    const a3 = planoDaFolha({ largura: 297, altura: 420 }, montagem({ papel: 'A3', dpi: 600 }));
+    expect(a3.folha.largura * a3.folha.altura).toBeLessThanOrEqual(36_000_000);
+    expect(a3.pontosPorMm * 25.4).toBeGreaterThan(400);
+  });
+});
+
+describe('orientação automática', () => {
+  it('página deitada deita a folha; em pé, fica em pé', () => {
+    const deitada = planoDaFolha({ largura: 297, altura: 210 }, montagem({ orientacao: 'auto' }));
+    expect(deitada.folha.largura).toBeGreaterThan(deitada.folha.altura);
+    expect(cobertura(deitada)).toBeGreaterThan(0.999);
+
+    const empe = planoDaFolha(A4_EM_MM, montagem({ orientacao: 'auto', paisagem: true }));
+    expect(empe.folha.largura).toBeLessThan(empe.folha.altura);
+  });
+
+  it('retrato e paisagem escolhidos à mão mandam mais que a página', () => {
+    const forcada = planoDaFolha({ largura: 297, altura: 210 }, montagem({ orientacao: 'retrato' }));
+    expect(forcada.folha.largura).toBeLessThan(forcada.folha.altura);
+    const deitada = planoDaFolha(A4_EM_MM, montagem({ orientacao: 'paisagem' }));
+    expect(deitada.folha.largura).toBeGreaterThan(deitada.folha.altura);
+  });
+});
+
+describe('área que a impressora alcança', () => {
+  const borda = { esquerda: 4, cima: 5, direita: 6, baixo: 4 };
+
+  it('ajustar à página cabe dentro da beirada física, centrado no papel', () => {
+    const { folha, caixa } = montarFolha(A4_EM_MM, montagem({ borda }));
+    // O maior de cada eixo, dos dois lados: 6 nos lados, 5 em cima e embaixo.
+    // A A4 bate primeiro nos lados, então a largura manda e sobra em cima.
+    expect(caixa.x).toBeCloseTo(6, 5);
+    expect(caixa.x + caixa.largura).toBeCloseTo(folha.largura - 6, 5);
+    expect(caixa.y).toBeGreaterThanOrEqual(5);
+    expect(caixa.y).toBeCloseTo((folha.altura - caixa.altura) / 2, 5);
+    expect(avisoDaFolha(A4_EM_MM, montagem({ borda }))).toBeNull();
+  });
+
+  it('margem maior que a beirada continua valendo', () => {
+    const { caixa } = montarFolha(A4_EM_MM, montagem({ borda, margemCima: 15 }));
+    expect(caixa.y).toBeCloseTo(15, 5);
+  });
+
+  it('deitada, a beirada gira junto com a folha', () => {
+    const { caixa } = montarFolha({ largura: 297, altura: 210 }, montagem({ borda, orientacao: 'auto' }));
+    // Em pé eram 6 nos lados e 5 em cima; deitada, 6 em cima.
+    expect(caixa.y).toBeCloseTo(6, 5);
+  });
+
+  it('tamanho original não encolhe por causa da beirada, mas avisa', () => {
+    const { caixa } = montarFolha(A4_EM_MM, montagem({ borda, escala: 'original' }));
+    expect(caixa.largura).toBeCloseTo(210, 5);
+    expect(avisoDaFolha(A4_EM_MM, montagem({ borda, escala: 'original' }))).toMatch(/beirada/);
+  });
+
+  it('sem saber da impressora, imprime até a borda como antes', () => {
+    const plano = planoDaFolha(A4_EM_MM, montagem());
+    expect(cobertura(plano)).toBeGreaterThan(0.999);
   });
 });
 

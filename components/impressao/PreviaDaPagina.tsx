@@ -19,8 +19,12 @@ export type FolhaNaTela = {
   arte: { x: number; y: number; largura: number; altura: number };
   /** Riscos de corte e alvos de registro, já em pixels. */
   marcas: { x: number; y: number; largura: number; altura: number }[];
+  /** Até onde a impressora alcança. Nulo quando ela imprime até a borda ou não disse. */
+  imprimivel?: { x: number; y: number; largura: number; altura: number } | null;
   espelho?: string;
   negativo?: boolean;
+  /** Preto e branco: a prévia mostra cinza, como vai sair. */
+  cinza?: boolean;
 };
 
 export function PreviaDaPagina({
@@ -102,42 +106,62 @@ export function PreviaDaPagina({
               conferir antes de mandar uma tiragem.
 
               A moldura branca é a folha; o `arte` posiciona o canvas dentro
-              dela com a mesma conta que o HTML da impressão usa.
+              dela com a mesma conta que a impressão usa.
+
+              Um canvas só, sempre o mesmo elemento, com ou sem a folha em
+              volta. Eram dois — um solto, outro dentro da folha — e a troca
+              entre eles jogava fora o desenho: a prévia ficava em branco até
+              algo mudar de tamanho por acaso.
             */}
-            {folha ? (
-              <div
-                className="relative rounded-lg bg-white shadow-lg"
-                style={{ width: `${folha.largura}px`, height: `${folha.altura}px` }}
-              >
-                <canvas
-                  ref={telaRef}
-                  className="absolute block"
+            <div
+              className={folha ? 'relative rounded-lg bg-white shadow-lg' : 'relative'}
+              style={folha ? { width: `${folha.largura}px`, height: `${folha.altura}px` } : undefined}
+            >
+              <canvas
+                ref={telaRef}
+                className={folha ? 'absolute block' : 'block rounded-lg bg-white shadow-lg'}
+                style={
+                  folha
+                    ? {
+                        left: `${folha.arte.x}px`,
+                        top: `${folha.arte.y}px`,
+                        width: `${folha.arte.largura}px`,
+                        height: `${folha.arte.altura}px`,
+                        transform: folha.espelho,
+                        filter:
+                          [folha.cinza ? 'grayscale(1)' : '', folha.negativo ? 'invert(1)' : '']
+                            .filter(Boolean)
+                            .join(' ') || undefined,
+                      }
+                    : undefined
+                }
+              />
+              {folha?.imprimivel && (
+                <span
+                  className="pointer-events-none absolute border border-dashed border-sky-500/70"
+                  title="Até aqui a impressora alcança. O que ficar para fora pode sair cortado."
                   style={{
-                    left: `${folha.arte.x}px`,
-                    top: `${folha.arte.y}px`,
-                    width: `${folha.arte.largura}px`,
-                    height: `${folha.arte.altura}px`,
-                    transform: folha.espelho,
-                    filter: folha.negativo ? 'invert(1)' : undefined,
+                    left: `${folha.imprimivel.x}px`,
+                    top: `${folha.imprimivel.y}px`,
+                    width: `${folha.imprimivel.largura}px`,
+                    height: `${folha.imprimivel.altura}px`,
                   }}
                 />
-                {/* O que passa da folha não sai impresso, e a prévia diz isso. */}
-                {folha.marcas.map((marca, i) => (
-                  <span
-                    key={i}
-                    className="absolute bg-ink/70"
-                    style={{
-                      left: `${marca.x}px`,
-                      top: `${marca.y}px`,
-                      width: `${marca.largura}px`,
-                      height: `${marca.altura}px`,
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <canvas ref={telaRef} className="block rounded-lg bg-white shadow-lg" />
-            )}
+              )}
+              {/* O que passa da folha não sai impresso, e a prévia diz isso. */}
+              {folha?.marcas.map((marca, i) => (
+                <span
+                  key={i}
+                  className="absolute bg-ink/70"
+                  style={{
+                    left: `${marca.x}px`,
+                    top: `${marca.y}px`,
+                    width: `${marca.largura}px`,
+                    height: `${marca.altura}px`,
+                  }}
+                />
+              ))}
+            </div>
             {renderizando && (
               <span className="absolute inset-0 grid place-items-center rounded-lg bg-bg/50">
                 <Loader2 className="h-5 w-5 animate-spin text-brand" />

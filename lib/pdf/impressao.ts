@@ -13,23 +13,24 @@
  * aba em máquina fraca.
  */
 
-import {
-  desenharFolha,
-  planoDaFolha,
-  pontosParaMm,
-  resolucao,
-  type Montagem,
-} from '../impressao/folha';
+import { cabeNaMemoria, desenharFolha, planoDaFolha, pontosParaMm, type Montagem } from '../impressao/folha';
 import { openWithPdfJs, renderPageToCanvas } from './nucleo';
 
 /**
  * Teto do desenho da página, antes de entrar na folha.
  *
- * Passa dos 300 da folha porque ampliar é caso real de gráfica: um cartão de
- * visita a 300% precisa de três vezes mais pixel na origem para chegar com
- * 300 no papel. Acima de 600 o ganho não sai da tela.
+ * Passa dos 600 da folha porque ampliar é caso real de gráfica: um cartão de
+ * visita a 200% precisa do dobro de pixel na origem para chegar inteiro no
+ * papel. O teto de pixels segura o outro extremo — um pôster A0 em tamanho
+ * original não pode virar uma tela de meio gigapixel.
  */
-const DPI_MAXIMO_DA_PAGINA = 600;
+const DPI_MAXIMO_DA_PAGINA = 1200;
+const PIXELS_MAXIMOS_DA_PAGINA = 40_000_000;
+
+function dpiQueCabeNaPagina(arte: { largura: number; altura: number }): number {
+  const polegadas = (arte.largura / 25.4) * (arte.altura / 25.4);
+  return polegadas > 0 ? Math.sqrt(cabeNaMemoria(PIXELS_MAXIMOS_DA_PAGINA) / polegadas) : DPI_MAXIMO_DA_PAGINA;
+}
 
 export type ProgressoImpressao = (feitas: number, total: number) => void;
 
@@ -41,7 +42,6 @@ export async function prepararParaImpressao(
   onProgresso?: ProgressoImpressao,
 ): Promise<number> {
   const doc = await openWithPdfJs(await blob.arrayBuffer());
-  const dpiDaFolha = resolucao(montagem.dpi);
   const pagina = document.createElement('canvas');
   const folha = document.createElement('canvas');
 
@@ -56,11 +56,15 @@ export async function prepararParaImpressao(
 
       // Desenhar a página na resolução em que ela vai **terminar** na folha:
       // reduzida, poupa memória; ampliada, evita o borrão de esticar depois.
+      // A resolução da folha vem do plano, e não das opções: papel grande
+      // desce do máximo para caber, e cada página decide se deita.
       const plano = planoDaFolha(arte, montagem);
+      const dpiDaFolha = plano.pontosPorMm * 25.4;
       const fator = arte.largura > 0 ? plano.arte.largura / plano.pontosPorMm / arte.largura : 1;
       const dpiDaPagina = Math.min(
         Math.max(dpiDaFolha * fator, 72),
         DPI_MAXIMO_DA_PAGINA,
+        dpiQueCabeNaPagina(arte),
       );
 
       // A mesma função que comprimir, tons de cinza e OCR usam. Desenhar aqui

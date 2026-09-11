@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2, Plus, Printer, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Plus, Printer, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { abrirPreferenciasDaImpressora, type Impressora, type OpcoesImpressao } from '@/lib/desktop';
 import { cx } from '@/lib/utils';
 
@@ -16,6 +16,7 @@ export function OpcoesDeImpressao({
   montando,
   lote,
   prontos,
+  deNovo,
   imprimindo,
   preparando,
   aviso,
@@ -25,6 +26,7 @@ export function OpcoesDeImpressao({
   onLote,
   onImprimir,
   onLimpar,
+  onResetar,
 }: {
   opcoes: OpcoesImpressao;
   impressoras: Impressora[] | null;
@@ -34,6 +36,8 @@ export function OpcoesDeImpressao({
   montando: boolean;
   lote: number;
   prontos: number;
+  /** Tudo já foi impresso: o botão manda outra vez. */
+  deNovo: boolean;
   imprimindo: string | null;
   preparando: boolean;
   aviso: string | null;
@@ -43,6 +47,7 @@ export function OpcoesDeImpressao({
   onLote: (valor: number) => void;
   onImprimir: () => void;
   onLimpar: () => void;
+  onResetar: () => void;
 }) {
   const campo = 'w-full rounded-xl border bg-bg/60 px-3 py-2.5 text-sm text-ink outline-none transition';
 
@@ -369,26 +374,9 @@ export function OpcoesDeImpressao({
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted">
-        Zero imprime até a beirada. A impressora ainda tem a margem física dela, que não dá para vencer por
-        software — se cortar, aumente aqui.
+        Em &quot;ajustar à página&quot;, zero leva a arte até onde a impressora alcança — a beirada física dela
+        aparece tracejada na prévia, como na impressão do navegador. A qualidade é sempre a máxima.
       </p>
-
-      <div>
-        <label htmlFor="qualidade" className="field-label">
-          Qualidade
-        </label>
-        <select
-          id="qualidade"
-          className={cx(campo, 'mt-1.5')}
-          value={String(opcoes.dpi)}
-          onChange={(e) => onMudar('dpi', Number(e.target.value))}
-        >
-          <option value="150">Rascunho · 150 DPI</option>
-          <option value="300">Normal · 300 DPI</option>
-          <option value="600">Alta · 600 DPI</option>
-          <option value="1200">Máxima · 1200 DPI</option>
-        </select>
-      </div>
 
       <div>
         <label htmlFor="duplex" className="field-label">
@@ -440,26 +428,37 @@ export function OpcoesDeImpressao({
             {rotulo}
           </button>
         ))}
-        {(
-          [
-            ['Retrato', false],
-            ['Paisagem', true],
-          ] as const
-        ).map(([rotulo, valor]) => (
-          <button
-            key={rotulo}
-            type="button"
-            onClick={() => onMudar('paisagem', valor)}
-            className={cx(
-              'rounded-lg border px-3 py-1.5 text-[13px] font-medium transition',
-              Boolean(opcoes.paisagem) === valor
-                ? 'border-transparent bg-ink text-bg'
-                : 'text-muted hover:text-ink',
-            )}
-          >
-            {rotulo}
-          </button>
-        ))}
+      </div>
+
+      <div>
+        <p className="field-label">Orientação</p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {(
+            [
+              ['Automática', 'auto'],
+              ['Retrato', 'retrato'],
+              ['Paisagem', 'paisagem'],
+            ] as const
+          ).map(([rotulo, valor]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => {
+                onMudar('orientacao', valor);
+                onMudar('paisagem', valor === 'paisagem');
+              }}
+              className={cx(
+                'rounded-lg border px-3 py-1.5 text-[13px] font-medium transition',
+                (opcoes.orientacao ?? 'auto') === valor ? 'border-transparent bg-ink text-bg' : 'text-muted hover:text-ink',
+              )}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted">
+          Automática deita a folha quando a página ou a foto é mais larga que alta, uma a uma.
+        </p>
       </div>
     </div>
 
@@ -472,18 +471,34 @@ export function OpcoesDeImpressao({
       {imprimindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
       {imprimindo
         ? 'Enviando...'
-        : prontos > 1
-          ? `Imprimir os ${prontos}`
-          : 'Imprimir'}
+        : deNovo
+          ? prontos > 1
+            ? `Imprimir os ${prontos} de novo`
+            : 'Imprimir de novo'
+          : prontos > 1
+            ? `Imprimir os ${prontos}`
+            : 'Imprimir'}
     </button>
 
-    <button
-      type="button"
-      onClick={onLimpar}
-      className="btn-ghost mt-2 w-full py-2 text-[13px]"
-    >
-      <Plus className="h-3.5 w-3.5 rotate-45" /> Limpar a fila
-    </button>
+    <div className="mt-2 grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={onLimpar}
+        disabled={Boolean(imprimindo)}
+        className="btn-ghost w-full py-2 text-[13px] disabled:opacity-40"
+      >
+        <Plus className="h-3.5 w-3.5 rotate-45" /> Limpar a fila
+      </button>
+      <button
+        type="button"
+        onClick={onResetar}
+        disabled={Boolean(imprimindo)}
+        title="Tira os arquivos e volta todas as opções ao padrão."
+        className="btn-ghost w-full py-2 text-[13px] disabled:opacity-40"
+      >
+        <RotateCcw className="h-3.5 w-3.5" /> Resetar configurações
+      </button>
+    </div>
 
     {aviso && <p className="mt-3 text-center text-xs text-brand">{aviso}</p>}
 

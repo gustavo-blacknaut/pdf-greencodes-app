@@ -9,6 +9,7 @@ import {
   Loader2,
   Lock,
   Plus,
+  RotateCcw,
   Sparkles,
   X,
   Zap,
@@ -26,6 +27,7 @@ import { ToolIcon } from './ToolIcon';
 import { atividade } from '@/lib/atividade';
 import { DEFAULT_TTL_MS, SEM_PRAZO, vault } from '@/lib/ephemeral';
 import {
+  abrirNaMemoria,
   desbloquearArquivo,
   inspectFile,
   runOperation,
@@ -165,7 +167,6 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
     [items, tool.multiple],
   );
 
-  /** Barra de leitura de cada arquivo, vinda do processo principal. */
   /** Tira da tela o marcador de um arquivo que não conseguiu ser lido. */
   const descartarMarcadores = useCallback((nomes: string[], erro: string) => {
     const ids = new Set(nomes.map((n) => marcadoresRef.current.get(n)).filter(Boolean));
@@ -254,7 +255,10 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
       void (async () => {
         for (const { file, item } of batch) {
           try {
-            const data = await inspectFile(file, item.id);
+            let data = await inspectFile(file, item.id);
+            // A grade de páginas e o editor desenham o documento na hora: o
+            // arquivo grande que ficou no disco precisa vir para a memória.
+            if ((tool.board || tool.editor) && data.caminho && !data.error) data = await abrirNaMemoria(data);
             setItems((current) =>
               current.map((existing) =>
                 existing.id === item.id ? { ...existing, loading: false, data, error: data.error } : existing,
@@ -272,12 +276,26 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
         }
       })();
     },
-    [tool.accept, tool.acceptLabel, tool.multiple, items],
+    [tool.accept, tool.acceptLabel, tool.multiple, tool.board, tool.editor, items],
   );
+
+  // Com o resultado na tela, arquivo novo começa outro trabalho — e não entra
+  // na fila do anterior. Lido por ref: as inscrições abaixo são montadas uma vez.
+  const faseRef = useRef(phase);
+  faseRef.current = phase;
 
   // No aplicativo, arquivo aberto pelo Explorador ou pelo menu do botao
   // direito entra direto na ferramenta que estiver na tela.
-  useEffect(() => aoReceberArquivosDoSistema(addFiles), [addFiles]);
+  useEffect(
+    () =>
+      aoReceberArquivosDoSistema((arquivos) => {
+        if (faseRef.current === 'running') return;
+        if (faseRef.current === 'done') reset();
+        addFiles(arquivos);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addFiles],
+  );
 
   /*
    * O mesmo seletor do Dropzone, para a grade poder juntar mais PDFs.
@@ -296,8 +314,6 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
 
   // Arquivo arrastado para a janela do aplicativo: o mesmo trilho do diálogo.
   // Durante um trabalho, espera; com o resultado na tela, começa outro.
-  const faseRef = useRef(phase);
-  faseRef.current = phase;
   const receber = seletor.receber;
   useEffect(
     () =>
@@ -482,16 +498,43 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
     abortRef.current?.abort();
   }
 
+  /**
+   * Tira os arquivos e tudo o que dependia deles.
+   *
+   * O plano da grade e os elementos do editor apontam para páginas do
+   * documento anterior: se ficassem nas opções, o próximo arquivo sairia
+   * reorganizado ou carimbado com o trabalho do outro.
+   */
   function reset() {
     if (resultIdRef.current) {
       vault.purge(resultIdRef.current, 'manual');
       resultIdRef.current = null;
     }
+    marcadoresRef.current.clear();
     setItems([]);
     setResult(null);
     setPhase('idle');
     setProgress({ fraction: 0, label: '' });
     setError(null);
+    setSugerirApp(false);
+    setAviso(null);
+    setRegistro([]);
+    setOptions((atuais) => {
+      const semODocumento = { ...atuais };
+      delete semODocumento.plan;
+      delete semODocumento.elementos;
+      return semODocumento;
+    });
+  }
+
+  /** Volta as opções ao padrão da ferramenta, sem mexer nos arquivos. */
+  function resetarOpcoes() {
+    const { plan, elementos } = options;
+    setOptions({
+      ...defaultOptions(tool),
+      ...(plan !== undefined && { plan }),
+      ...(elementos !== undefined && { elementos }),
+    });
   }
 
   const actionBlock = (
@@ -717,7 +760,18 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
           <div className="card min-w-0 space-y-5 p-4 sm:p-5 lg:sticky lg:top-24">
             {visibleFields.length > 0 ? (
               <>
-                <h2 className="text-sm font-semibold tracking-tight">Opções</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold tracking-tight">Opções</h2>
+                  <button
+                    type="button"
+                    onClick={resetarOpcoes}
+                    disabled={phase === 'running'}
+                    className="btn-ghost ml-auto px-2.5 py-1 text-[12px] disabled:opacity-40"
+                    title="Volta as opções desta ferramenta ao padrão."
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" /> Resetar configurações
+                  </button>
+                </div>
                 <div className="space-y-5">
                   {visibleFields.map((field) => (
                     <OptionField

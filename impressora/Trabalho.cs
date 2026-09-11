@@ -14,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Drawing.Printing;
 using System.IO;
 
@@ -70,6 +71,9 @@ static class Trabalho
         documento.DefaultPageSettings.Landscape = pedido.Paisagem;
         AplicarCor(documento, pedido.Cor);
         AplicarDuplex(documento, pedido.Duplex);
+        // A melhor qualidade que o driver tem, sempre - a menos que a pessoa
+        // tenha escolhido outra na janela dele, que ai manda.
+        if (string.IsNullOrEmpty(pedido.Devmode)) AplicarMelhorResolucao(documento);
 
         if (pedido.Copias > 0)
         {
@@ -92,13 +96,35 @@ static class Trabalho
         }
 
         int proxima = 0;
+
+        // Cada folha ja chega desenhada na orientacao dela: deitada se a imagem
+        // e mais larga que alta. Um PDF com paginas em pe e deitadas misturadas
+        // sai cada uma do jeito certo, no mesmo trabalho.
+        documento.QueryPageSettings += (remetente, evento) =>
+        {
+            if (proxima < pedido.Imagens.Count) evento.PageSettings.Landscape = Deitada(pedido.Imagens[proxima]);
+        };
+
         documento.PrintPage += (remetente, evento) =>
         {
             using (var imagem = Image.FromFile(pedido.Imagens[proxima]))
             {
-                evento.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                evento.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                evento.Graphics.DrawImage(imagem, Encaixar(imagem, evento.PageBounds, pedido.Ajustar));
+                Graphics pincel = evento.Graphics;
+                pincel.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                pincel.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                pincel.SmoothingMode = SmoothingMode.HighQuality;
+
+                // Com OriginAtMargins desligado, o ponto zero do Windows fica
+                // no comeco da area imprimivel, alguns milimetros para dentro
+                // do papel - e nao na borda. Desenhar a folha inteira dali
+                // empurrava a arte para a direita e para baixo e cortava os
+                // dois lados. Voltando pela margem fisica, a folha desenhada
+                // cai em cima do papel, um por um, como a previa mostra.
+                pincel.TranslateTransform(-evento.PageSettings.HardMarginX, -evento.PageSettings.HardMarginY);
+
+                Rectangle alvo = Encaixar(imagem, evento.PageBounds, pedido.Ajustar);
+                if (pedido.Cor == 0) DesenharEmCinza(pincel, imagem, alvo);
+                else pincel.DrawImage(imagem, alvo);
             }
 
             proxima++;
@@ -159,6 +185,58 @@ static class Trabalho
         // Impressora sem cor nao vira colorida por pedido nosso.
         if (cor == 1 && !documento.PrinterSettings.SupportsColor) return;
         documento.DefaultPageSettings.Color = cor == 1;
+    }
+
+    /// A folha e deitada? Le so o cabecalho da imagem, sem decodificar os pixels.
+    static bool Deitada(string caminho)
+    {
+        using (var fluxo = File.OpenRead(caminho))
+        using (var imagem = Image.FromStream(fluxo, false, false))
+        {
+            return imagem.Width > imagem.Height;
+        }
+    }
+
+    /// Preto e branco de verdade.
+    ///
+    /// Pedir "sem cor" ao driver nao basta: HP, Epson e outros guardam o modo
+    /// de cor na parte privada do DEVMODE e ignoram o pedido - e a folha saia
+    /// colorida. Desenhando em cinza, nao ha cor para o driver imprimir.
+    static void DesenharEmCinza(Graphics pincel, Image imagem, Rectangle alvo)
+    {
+        var cinza = new ColorMatrix(new float[][]
+        {
+            new float[] { 0.299f, 0.299f, 0.299f, 0, 0 },
+            new float[] { 0.587f, 0.587f, 0.587f, 0, 0 },
+            new float[] { 0.114f, 0.114f, 0.114f, 0, 0 },
+            new float[] { 0, 0, 0, 1, 0 },
+            new float[] { 0, 0, 0, 0, 1 },
+        });
+        using (var atributos = new ImageAttributes())
+        {
+            atributos.SetColorMatrix(cinza);
+            pincel.DrawImage(imagem, alvo, 0, 0, imagem.Width, imagem.Height, GraphicsUnit.Pixel, atributos);
+        }
+    }
+
+    /// A resolucao mais alta que o driver oferece.
+    ///
+    /// "Alta" (DMRES_HIGH) e o modo de melhor qualidade do proprio fabricante;
+    /// sem ele na lista, fica a maior resolucao numerica. Sem nada disso, o
+    /// driver segue com a dele.
+    static void AplicarMelhorResolucao(PrintDocument documento)
+    {
+        PrinterResolution melhor = null;
+        foreach (PrinterResolution resolucao in documento.PrinterSettings.PrinterResolutions)
+        {
+            if (resolucao.Kind == PrinterResolutionKind.High) { melhor = resolucao; break; }
+            if (resolucao.Kind == PrinterResolutionKind.Custom &&
+                (melhor == null || resolucao.X * resolucao.Y > melhor.X * melhor.Y))
+            {
+                melhor = resolucao;
+            }
+        }
+        if (melhor != null) documento.DefaultPageSettings.PrinterResolution = melhor;
     }
 
     static void AplicarDuplex(PrintDocument documento, string duplex)

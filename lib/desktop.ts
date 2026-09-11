@@ -34,14 +34,22 @@ async function invoke<T>(comando: string, argumentos?: InvokeArgs, opcoes?: Invo
   }
 }
 
-import type { Montagem } from './impressao/folha';
+import { DPI_MAXIMO, type Montagem, type Orientacao } from './impressao/folha';
+import type { BordaDaImpressora } from './impressao/layout';
 
 export type ArquivoDoSistema = { nome: string; bytes: ArrayBuffer };
 
 /** O que o diálogo devolve antes de ler: barato, e chega na hora. */
 export type ArquivoEscolhido = { nome: string; caminho: string; tamanho: number };
 
-export type Impressora = { nome: string; apelido: string; descricao: string; padrao: boolean };
+export type Impressora = {
+  nome: string;
+  apelido: string;
+  descricao: string;
+  padrao: boolean;
+  /** A beirada que o mecanismo não alcança, em milímetros. Ausente se o driver não disse. */
+  margens?: BordaDaImpressora;
+};
 
 /** O que o motor Python recebe. Caminhos em disco, nunca bytes. */
 export type PedidoDoMotor = {
@@ -73,10 +81,18 @@ export type OpcoesImpressao = {
   impressora?: string;
   copias?: number;
   colorido?: boolean;
+  /** Automática deita cada folha conforme a página. Sem ela, vale `paisagem`. */
+  orientacao?: Orientacao;
   paisagem?: boolean;
   duplex?: 'simplex' | 'shortEdge' | 'longEdge';
   papel?: 'A3' | 'A4' | 'A5' | 'Legal' | 'Letter' | 'Tabloid';
+  /** Ignorado: a folha sai sempre na melhor resolução. Fica por causa das opções guardadas. */
   dpi?: number;
+  /**
+   * A beirada da impressora escolhida. Vem do driver na hora de imprimir, e
+   * não de quem imprime — por isso não é guardada com as outras opções.
+   */
+  bordaMm?: BordaDaImpressora;
   /** Margem em milímetros. Nos lados e em cima/embaixo, separadas. */
   margemLadosMm?: number;
   margemCimaMm?: number;
@@ -274,14 +290,27 @@ export async function escolherArquivos(extensoes?: string[]): Promise<ArquivoEsc
  * Acima deste tamanho o arquivo segue só pelo caminho: o motor Python abre
  * direto do disco e o resultado vai direto para Downloads.
  */
-export const LIMIAR_EM_DISCO = 256 * 1024 * 1024;
+export const LIMIAR_EM_DISCO = 100 * 1024 * 1024;
 
 /** Os arquivos que ficaram no disco, e onde estão. */
 const noDisco = new WeakMap<File, { caminho: string; tamanho: number }>();
 
+/**
+ * De onde veio cada arquivo lido inteiro.
+ *
+ * O motor Python abre por aqui, com um link para o original, em vez de
+ * receber de volta pela janela os mesmos bytes que acabaram de chegar dela.
+ */
+const origens = new WeakMap<File, string>();
+
 /** Onde está o arquivo que ficou no disco, ou nada se ele veio inteiro para a memória. */
 export function arquivoNoDisco(arquivo: File): { caminho: string; tamanho: number } | null {
   return noDisco.get(arquivo) ?? null;
+}
+
+/** O caminho de onde o arquivo foi lido, se ele veio do disco da pessoa. */
+export function origemNoDisco(arquivo: File): string | null {
+  return noDisco.get(arquivo)?.caminho ?? origens.get(arquivo) ?? null;
 }
 
 /** O tamanho de verdade: o `File` de um arquivo no disco não carrega os bytes, e diz 0. */
@@ -303,7 +332,9 @@ export async function lerArquivoEscolhido(escolhido: ArquivoEscolhido): Promise<
     noDisco.set(vazio, { caminho: escolhido.caminho, tamanho: escolhido.tamanho });
     return vazio;
   }
-  return new File([await lerCaminho(escolhido.caminho)], escolhido.nome);
+  const arquivo = new File([await lerCaminho(escolhido.caminho)], escolhido.nome);
+  origens.set(arquivo, escolhido.caminho);
+  return arquivo;
 }
 
 /**
@@ -313,7 +344,9 @@ export async function lerArquivoEscolhido(escolhido: ArquivoEscolhido): Promise<
 export async function materializar(arquivo: File): Promise<File> {
   const emDisco = noDisco.get(arquivo);
   if (!emDisco) return arquivo;
-  return new File([await lerCaminho(emDisco.caminho)], arquivo.name, { type: arquivo.type });
+  const lido = new File([await lerCaminho(emDisco.caminho)], arquivo.name, { type: arquivo.type });
+  origens.set(lido, emDisco.caminho);
+  return lido;
 }
 
 /** Os bytes de um arquivo entregue pela pessoa, lidos agora. */
@@ -438,7 +471,7 @@ export function motorPython(): MotorPython | null {
 /** Lista as impressoras do sistema. Fora do aplicativo não há o que listar. */
 export async function listarImpressoras(): Promise<Impressora[]> {
   const lista = await pedir<
-    { nome: string; padrao?: boolean; descricao?: string }[]
+    { nome: string; padrao?: boolean; descricao?: string; margens?: BordaDaImpressora }[]
   >('listar_impressoras');
   if (!lista) return [];
   return lista.map((impressora) => ({
@@ -446,7 +479,20 @@ export async function listarImpressoras(): Promise<Impressora[]> {
     apelido: impressora.nome,
     descricao: impressora.descricao ?? '',
     padrao: Boolean(impressora.padrao),
+    margens: emMilimetros(impressora.margens),
   }));
+}
+
+/** O driver fala em centésimos de polegada; a folha, em milímetros. */
+function emMilimetros(margens?: BordaDaImpressora): BordaDaImpressora | undefined {
+  if (!margens) return undefined;
+  const mm = (valor: unknown) => Math.max(0, Number(valor) || 0) * 0.254;
+  return {
+    esquerda: mm(margens.esquerda),
+    cima: mm(margens.cima),
+    direita: mm(margens.direita),
+    baixo: mm(margens.baixo),
+  };
 }
 
 /**
@@ -461,12 +507,20 @@ export async function abrirPreferenciasDaImpressora(impressora: string): Promise
   return (await pedir<ResultadoSalvar>('preferencias_da_impressora', { impressora })) ?? FORA;
 }
 
-/** O que a folha precisa saber, a partir do que a tela pediu. */
-function montagemDe(opcoes: OpcoesImpressao = {}): Montagem {
+/**
+ * O que a folha precisa saber, a partir do que a tela pediu. A prévia usa a
+ * mesma, para mostrar o que a impressora vai receber.
+ */
+export function montagemDe(opcoes: OpcoesImpressao = {}): Montagem {
   return {
     papel: opcoes.papel ?? 'A4',
+    orientacao: opcoes.orientacao ?? (opcoes.paisagem ? 'paisagem' : 'auto'),
     paisagem: Boolean(opcoes.paisagem),
-    dpi: opcoes.dpi ?? 300,
+    colorido: opcoes.colorido !== false,
+    borda: opcoes.bordaMm,
+    // Sempre a melhor: quem imprime não deveria ter de escolher entre nítido
+    // e borrado. Papel grande desce sozinho até caber na memória.
+    dpi: DPI_MAXIMO,
     escala: opcoes.escala ?? opcoes.ajuste ?? 'pagina',
     porcento: opcoes.escalaPorcento,
     deslocaX: opcoes.deslocaXmm,
@@ -521,7 +575,9 @@ export async function imprimirArquivo(
           impressora: opcoes?.impressora,
           copias: opcoes?.copias,
           colorido: opcoes?.colorido,
-          paisagem: opcoes?.paisagem,
+          // Só o ponto de partida: o ajudante deita cada folha pela imagem
+          // dela, que já sai daqui na orientação certa.
+          paisagem: montagemDe(opcoes).orientacao === 'paisagem',
           duplex: opcoes?.duplex,
           papel: opcoes?.papel ?? 'A4',
           arquivo: opcoes?.arquivo,

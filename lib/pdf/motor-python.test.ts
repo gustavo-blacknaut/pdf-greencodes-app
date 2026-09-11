@@ -13,6 +13,7 @@ const motorFalso = {
   cancelar: vi.fn(),
   pastaTemporaria: vi.fn(),
   gravarEntrada: vi.fn(),
+  vincularEntrada: vi.fn(),
   lerSaida: vi.fn(),
   limpar: vi.fn(),
   aoAndar: vi.fn(),
@@ -135,8 +136,17 @@ describe('tradução das opções', () => {
     expect(await opcoesEnviadas('compress', { level: 'sem-perda' })).toEqual({ redesenhar: false });
   });
 
-  it('equilibrada redesenha no nível médio', async () => {
-    expect(await opcoesEnviadas('compress', { level: 'equilibrada' })).toEqual({ redesenhar: true, nivel: 'medio' });
+  it('recomendada, o padrão, encolhe só as fotos a 150 DPI', async () => {
+    expect(await opcoesEnviadas('compress', {})).toEqual({ modo: 'imagens', dpi: 150, qualidade: 75 });
+    expect(await opcoesEnviadas('compress', { level: 'recomendada' })).toEqual({ modo: 'imagens', dpi: 150, qualidade: 75 });
+  });
+
+  it('forte encolhe as fotos mais, e o texto continua texto', async () => {
+    expect(await opcoesEnviadas('compress', { level: 'forte' })).toEqual({ modo: 'imagens', dpi: 100, qualidade: 60 });
+  });
+
+  it('o nome antigo "equilibrada" vira a recomendada, e não redesenho', async () => {
+    expect(await opcoesEnviadas('compress', { level: 'equilibrada' })).toEqual({ modo: 'imagens', dpi: 150, qualidade: 75 });
   });
 
   it('máxima redesenha no nível mais forte', async () => {
@@ -168,6 +178,25 @@ describe('ida e volta pelo disco', () => {
     expect(motorFalso.executar).toHaveBeenCalledWith('tons-de-cinza', expect.objectContaining({ arquivos: ['C:\\temp\\x\\a.pdf'] }));
     expect(resultado.files).toHaveLength(1);
     expect(resultado.files[0].name).toBe('a-comprimido.pdf');
+  });
+
+  it('arquivo que veio do disco entra por link, sem mandar os bytes de volta', async () => {
+    motorFalso.vincularEntrada.mockResolvedValue('C:\\temp\\x\\a.pdf');
+    const ctx = contexto();
+    ctx.files[0] = { ...ctx.files[0], size: 8, origem: 'C:\\docs\\a.pdf' };
+    await rodarNoPython('grayscale', ctx);
+    expect(motorFalso.vincularEntrada).toHaveBeenCalledWith('C:\\temp\\x', 'C:\\docs\\a.pdf');
+    expect(motorFalso.gravarEntrada).not.toHaveBeenCalled();
+    // A saída ainda volta para a memória: só o arquivo no disco vai direto.
+    expect(motorFalso.lerSaida).toHaveBeenCalled();
+  });
+
+  it('se o original sumiu depois de escolhido, manda os bytes que a janela tem', async () => {
+    motorFalso.vincularEntrada.mockRejectedValue(new Error('nao encontrado'));
+    const ctx = contexto();
+    ctx.files[0] = { ...ctx.files[0], size: 8, origem: 'C:\\docs\\a.pdf' };
+    await rodarNoPython('grayscale', ctx);
+    expect(motorFalso.gravarEntrada).toHaveBeenCalledWith('C:\\temp\\x', 'a.pdf', expect.any(ArrayBuffer));
   });
 
   it('limpa a pasta temporária mesmo quando o motor falha', async () => {

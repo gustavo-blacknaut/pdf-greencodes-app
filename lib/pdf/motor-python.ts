@@ -66,9 +66,14 @@ const NO_PYTHON: Record<string, Traducao> = {
     // nesse caso o TypeScript continua respondendo.
     aceita: (ctx) => ctx.files.length === 1 && ctx.options.juntar !== true,
     opcoes: (o) => {
-      const nivel = String(o.level ?? 'sem-perda');
+      const nivel = String(o.level ?? 'recomendada');
       if (nivel === 'sem-perda') return { redesenhar: false };
-      return { redesenhar: true, nivel: nivel === 'maxima' ? 'muito' : 'medio' };
+      if (nivel === 'maxima') return { redesenhar: true, nivel: 'muito' };
+      // Recomendada e forte encolhem só as fotos: o texto continua texto.
+      // "equilibrada" era o nome antigo do meio-termo.
+      return nivel === 'forte'
+        ? { modo: 'imagens', dpi: 100, qualidade: 60 }
+        : { modo: 'imagens', dpi: 150, qualidade: 75 };
     },
   },
 
@@ -367,15 +372,12 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
   try {
     ctx.onProgress(0.02, 'Preparando o arquivo');
 
-    // O arquivo que ficou no disco entra por link, sem atravessar a janela;
-    // o que veio para a memória é gravado na pasta de trabalho.
+    // O arquivo que veio do disco entra por link, sem atravessar a janela de
+    // novo; só o que nasceu na memória (resultado de outra ferramenta, site)
+    // é gravado na pasta de trabalho.
     const caminhos: string[] = [];
     for (const arquivo of ctx.files) {
-      caminhos.push(
-        arquivo.caminho
-          ? await motor.vincularEntrada(pasta, arquivo.caminho)
-          : await motor.gravarEntrada(pasta, arquivo.name, arquivo.bytes),
-      );
+      caminhos.push(await entradaDoMotor(motor, pasta, arquivo));
     }
     // Com entrada no disco, a saída também não volta para a memória: vai
     // direto para Downloads, e a tela recebe só onde ela está.
@@ -428,6 +430,25 @@ export function notasDoMotor(valor: unknown): string[] {
 }
 
 type Motor = NonNullable<ReturnType<typeof motorPython>>;
+
+/**
+ * Onde o motor vai ler o arquivo.
+ *
+ * Pelo link quando dá: é instantâneo, e 200 MB que acabaram de chegar à
+ * janela não precisam voltar por ela. Se o original sumiu ou mudou de lugar
+ * depois de escolhido, os bytes que a janela tem ainda servem.
+ */
+async function entradaDoMotor(motor: Motor, pasta: string, arquivo: RunContext['files'][number]): Promise<string> {
+  if (arquivo.caminho) return motor.vincularEntrada(pasta, arquivo.caminho);
+  if (arquivo.origem && arquivo.bytes.byteLength === arquivo.size) {
+    try {
+      return await motor.vincularEntrada(pasta, arquivo.origem);
+    } catch {
+      /* segue pelos bytes */
+    }
+  }
+  return motor.gravarEntrada(pasta, arquivo.name, arquivo.bytes);
+}
 
 /** O motor devolve `arquivo` (um) ou `arquivos` (vários). */
 function saidasDoMotor(dados: Record<string, unknown>): { arquivo: string; paginas?: unknown }[] {

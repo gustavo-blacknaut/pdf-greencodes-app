@@ -19,10 +19,14 @@
  */
 
 import {
+  bordaNaFolha,
   folhaEmMm,
   marcasDeCorte,
   marcasDeRegistro,
+  passaDaFolha,
   posicionar,
+  sobra,
+  type BordaDaImpressora,
   type Caixa,
   type Medida,
   type ModoDeEscala,
@@ -30,10 +34,19 @@ import {
 
 export type Espelho = 'nao' | 'horizontal' | 'vertical';
 
+export type Orientacao = 'auto' | 'retrato' | 'paisagem';
+
 export type Montagem = {
   papel: string;
   paisagem: boolean;
-  /** Resolução do desenho. 300 é onde a diferença deixa de aparecer no papel. */
+  /**
+   * Automática deita a folha quando a página é mais larga que alta, página a
+   * página. Sem isto, vale `paisagem`.
+   */
+  orientacao?: Orientacao;
+  /** Falso manda a folha em tons de cinza: é o que garante preto e branco. */
+  colorido?: boolean;
+  /** Resolução do desenho. Vai até 600, contido pelo teto de pixels da folha. */
   dpi: number;
   escala: ModoDeEscala;
   porcento?: number;
@@ -45,6 +58,8 @@ export type Montagem = {
   negativo?: boolean;
   marcasCorte?: boolean;
   marcasRegistro?: boolean;
+  /** A beirada que a impressora escolhida não alcança. Vem do driver. */
+  borda?: BordaDaImpressora;
 };
 
 /** O que a arte mede de verdade, em milímetros. */
@@ -65,18 +80,96 @@ const RAIO_DO_ALVO_MM = 1.5;
 const AFASTAMENTO_DO_ALVO_MM = 6;
 
 /**
- * O teto do desenho.
+ * O teto do desenho: 600 DPI, a melhor qualidade que a laser comum aproveita.
  *
- * Uma A3 a 600 DPI daria 70 megapixels, e o canvas do navegador recusa acima
- * de uns 268. Parar em 300 é onde a diferença deixa de aparecer no papel, e
- * de quebra mantém a folha dentro do que qualquer máquina aguenta.
+ * O teto de verdade é de pixels, e não de DPI. Uma A4 a 600 DPI são 35
+ * megapixels — duas telas dessas (a página e a folha) ficam em uns 280 MB,
+ * que uma máquina de 4 GB aguenta. Uma A3 a 600 daria 70, então papel maior
+ * desce sozinho até caber: a A3 sai a uns 430 DPI.
  */
-export const DPI_MAXIMO = 300;
+export const DPI_MAXIMO = 600;
+const PIXELS_MAXIMOS_DA_FOLHA = 36_000_000;
+
+/**
+ * O teto cai pela metade em máquina de 4 GB.
+ *
+ * As máquinas da loja são i3 antigos: duas telas de 35 megapixels são uns
+ * 280 MB só de pixel, e aí o navegador derruba a aba no meio da impressão.
+ * Metade disso ainda dá mais de 400 DPI numa A4 — acima dos 300 em que a
+ * diferença já não sai do papel.
+ */
+export function cabeNaMemoria(pixels: number): number {
+  const memoria = typeof navigator === 'undefined' ? undefined : (navigator as { deviceMemory?: number }).deviceMemory;
+  return memoria && memoria <= 4 ? pixels / 2 : pixels;
+}
 
 export function resolucao(dpi: unknown): number {
   const lido = Number(dpi);
   if (!Number.isFinite(lido) || lido <= 0) return DPI_MAXIMO;
   return Math.min(Math.max(lido, 72), DPI_MAXIMO);
+}
+
+/** O DPI que a folha aguenta sem passar do teto de pixels. */
+function dpiQueCabe(folha: Medida): number {
+  const polegadas = (folha.largura / 25.4) * (folha.altura / 25.4);
+  return Math.floor(Math.sqrt(cabeNaMemoria(PIXELS_MAXIMOS_DA_FOLHA) / polegadas));
+}
+
+/**
+ * A folha sai deitada?
+ *
+ * No automático, quem decide é a página: mais larga que alta, deita — como a
+ * impressora do navegador faz. Assim um PDF com páginas em pé e deitadas
+ * misturadas sai cada uma do jeito certo, sem ninguém escolher.
+ */
+export function folhaDeitada(montagem: Pick<Montagem, 'orientacao' | 'paisagem'>, arte: Arte): boolean {
+  if (montagem.orientacao === 'paisagem') return true;
+  if (montagem.orientacao === 'retrato') return false;
+  if (montagem.orientacao === 'auto') return arte.largura > arte.altura;
+  return Boolean(montagem.paisagem);
+}
+
+/**
+ * A folha e onde a arte cai nela, em milímetros. A prévia e a impressão
+ * usam esta mesma conta.
+ *
+ * No "ajustar à página" a arte cabe dentro do que a impressora alcança, como
+ * a impressão do navegador faz: margem menor que a beirada física cortaria a
+ * borda do documento. Nos outros modos a medida é de quem pediu — tamanho
+ * original é tamanho original —, e a prévia só mostra a beirada tracejada.
+ */
+export function montarFolha(arte: Arte, montagem: Montagem) {
+  const deitada = folhaDeitada(montagem, arte);
+  const folha = folhaEmMm(montagem.papel, deitada);
+  const borda = bordaNaFolha(montagem.borda, deitada);
+  const cabeInteira = (montagem.escala ?? 'pagina') === 'pagina';
+
+  const caixa = posicionar(folha, arte, {
+    escala: montagem.escala,
+    porcento: montagem.porcento,
+    deslocaX: montagem.deslocaX,
+    deslocaY: montagem.deslocaY,
+    margemLados: cabeInteira ? Math.max(montagem.margemLados ?? 0, borda.lados) : montagem.margemLados,
+    margemCima: cabeInteira ? Math.max(montagem.margemCima ?? 0, borda.cima) : montagem.margemCima,
+  });
+  return { folha, caixa, borda, deitada };
+}
+
+/** O que dizer antes de imprimir: arte fora do papel, ou na beirada que não sai. */
+export function avisoDaFolha(arte: Arte, montagem: Montagem): string | null {
+  const { folha, caixa, borda } = montarFolha(arte, montagem);
+  const maior = (fora: ReturnType<typeof sobra>) =>
+    Math.max(fora.esquerda, fora.direita, fora.cima, fora.baixo).toFixed(1);
+
+  if (passaDaFolha(folha, caixa)) {
+    return `A arte passa da folha em até ${maior(sobra(folha, caixa))} mm. O que fica de fora não sai impresso.`;
+  }
+  if (!borda.lados && !borda.cima) return null;
+
+  const alcance = { largura: folha.largura - borda.lados * 2, altura: folha.altura - borda.cima * 2 };
+  const dentro = { ...caixa, x: caixa.x - borda.lados, y: caixa.y - borda.cima };
+  if (!passaDaFolha(alcance, dentro)) return null;
+  return `Até ${maior(sobra(alcance, dentro))} mm da arte caem na beirada que esta impressora não alcança (o tracejado da prévia) e podem sair cortados.`;
 }
 
 /**
@@ -86,18 +179,9 @@ export function resolucao(dpi: unknown): number {
  * diferença entre a arte no tamanho certo e a arte encolhida no meio.
  */
 export function planoDaFolha(arte: Arte, montagem: Montagem): Plano {
-  const dpi = resolucao(montagem.dpi);
+  const { folha, caixa } = montarFolha(arte, montagem);
+  const dpi = Math.min(resolucao(montagem.dpi), dpiQueCabe(folha));
   const pontosPorMm = dpi / 25.4;
-  const folha = folhaEmMm(montagem.papel, Boolean(montagem.paisagem));
-
-  const caixa = posicionar(folha, arte, {
-    escala: montagem.escala,
-    porcento: montagem.porcento,
-    deslocaX: montagem.deslocaX,
-    deslocaY: montagem.deslocaY,
-    margemLados: montagem.margemLados,
-    margemCima: montagem.margemCima,
-  });
 
   return {
     folha: {
@@ -175,8 +259,12 @@ function desenharArte(
   }
 
   // Negativo só na arte, e não na folha: o papel em volta continua branco
-  // porque é papel, e não parte do fotolito.
-  if (montagem.negativo) pincel.filter = 'invert(1)';
+  // porque é papel, e não parte do fotolito. Preto e branco vira cinza aqui
+  // mesmo: o driver que ignora o "sem cor" não tem cor para imprimir.
+  const filtros = [montagem.colorido === false ? 'grayscale(1)' : '', montagem.negativo ? 'invert(1)' : '']
+    .filter(Boolean)
+    .join(' ');
+  if (filtros) pincel.filter = filtros;
 
   pincel.drawImage(origem, x, y, largura, altura);
   pincel.restore();

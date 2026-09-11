@@ -1,6 +1,6 @@
 {
   "name": "pdf-greencodes",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "app:dev": "tauri dev",
-    "app:build": "node scripts/conferir-motor.mjs && tauri build",
+    "app:build": "node scripts/compilar-impressora.js && node scripts/motor-do-instalador.mjs && tauri build --config src-tauri/tauri.instalador.json",
     "tauri": "tauri",
     "deploy": "bash scripts/instalar-site.sh",
     "publicar-app": "node scripts/publicar-app.mjs",

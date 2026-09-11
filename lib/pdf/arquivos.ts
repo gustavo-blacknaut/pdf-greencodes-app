@@ -7,7 +7,7 @@
  * contar páginas, gerar miniatura e destravar o que veio com senha.
  */
 
-import { arquivoNoDisco, motorPython } from '../desktop';
+import { arquivoNoDisco, motorPython, origemNoDisco } from '../desktop';
 import { yieldToBrowser } from '../utils';
 import { LIMITES, pareceMesmoDocx, pareceMesmoImagem, pareceMesmoPdf, pareceSerImagem } from './guards';
 import { isPasswordError, openWithPdfJs, openWithPdfLib, renderPageToCanvas } from './nucleo';
@@ -78,6 +78,7 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
     bytes,
     pageCount: null,
     thumbnail: null,
+    origem: origemNoDisco(file) ?? undefined,
   };
 
   const nomeMinusculo = base.name.toLowerCase();

@@ -50,7 +50,7 @@ import {
 import { addBleed, foldMarks, frenteEVerso, posterTiles, stampImage } from './operacoes/grafica-extra';
 import { gerarCodigoBarras, gerarQrCode } from './operacoes/codigos';
 import { rodarNoPython, temMotorPython } from './motor-python';
-import type { RunContext, RunResult } from './tipos';
+import type { LoadedFile, ProgressFn, RunContext, RunResult } from './tipos';
 import { formatBytes } from '../utils';
 
 /* A interface importa tudo daqui, então o que ela usa é reexportado. */
@@ -159,23 +159,34 @@ const TRAZ_PARA_A_MEMORIA_ATE = 1024 * 1024 * 1024;
  */
 async function trazerParaAMemoria(ctx: RunContext): Promise<RunContext> {
   if (!ctx.files.some((arquivo) => arquivo.caminho)) return ctx;
-  const grande = ctx.files.find((arquivo) => arquivo.caminho && arquivo.size > TRAZ_PARA_A_MEMORIA_ATE);
-  if (grande) {
-    throw new Error(
-      `"${grande.name}" tem ${formatBytes(grande.size)}, e esta ferramenta precisa abrir o documento inteiro na memória, o que não cabe. Comprimir, juntar, dividir, girar, numerar e as outras que usam o motor trabalham direto no disco, com arquivos de até 2 GB.`,
-    );
-  }
-  const { lerCaminho } = await import('../desktop');
+  // Confere todos antes de ler o primeiro: recusar o terceiro depois de ler
+  // dois arquivos de 800 MB é fazer a pessoa esperar por um "não".
+  ctx.files.forEach(conferirSeCabe);
   const files = [];
-  for (const arquivo of ctx.files) {
-    if (!arquivo.caminho) {
-      files.push(arquivo);
-      continue;
-    }
-    ctx.onProgress(0, `Lendo ${arquivo.name}`);
-    files.push({ ...arquivo, bytes: await lerCaminho(arquivo.caminho), caminho: undefined });
-  }
+  for (const arquivo of ctx.files) files.push(await abrirNaMemoria(arquivo, ctx.onProgress));
   return { ...ctx, files };
+}
+
+function conferirSeCabe(arquivo: LoadedFile): void {
+  if (!arquivo.caminho || arquivo.size <= TRAZ_PARA_A_MEMORIA_ATE) return;
+  throw new Error(
+    `"${arquivo.name}" tem ${formatBytes(arquivo.size)}, e esta ferramenta precisa abrir o documento inteiro na memória, o que não cabe. Comprimir, juntar, dividir, girar, numerar e as outras que usam o motor trabalham direto no disco, com arquivos de até 2 GB.`,
+  );
+}
+
+/**
+ * Traz para a memória um arquivo que ficou no disco.
+ *
+ * Serve também às telas que desenham o documento — a grade de páginas e o
+ * editor —, que precisam dos bytes antes de qualquer operação rodar.
+ */
+export async function abrirNaMemoria(arquivo: LoadedFile, onProgress?: ProgressFn): Promise<LoadedFile> {
+  if (!arquivo.caminho) return arquivo;
+  conferirSeCabe(arquivo);
+  const { lerCaminho } = await import('../desktop');
+  onProgress?.(0, `Lendo ${arquivo.name}`);
+  // O caminho vira origem: se o arquivo ainda passar pelo motor, entra por link.
+  return { ...arquivo, bytes: await lerCaminho(arquivo.caminho), caminho: undefined, origem: arquivo.caminho };
 }
 
 export async function runOperation(id: OperationId, ctx: RunContext): Promise<RunResult> {

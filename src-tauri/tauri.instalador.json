@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "resources": {
+      "../motor/principal.py": null,
+      "../motor/motor/": null,
+      "../motor/runtime/": null,
+      "target/motor-do-instalador/": "motor/"
+    }
+  }
+}

@@ -15,6 +15,7 @@ import {
 import { type OutputFile, type RunContext, type RunResult } from '../tipos';
 import { suffixName } from '../../utils';
 import { loadPdfLib } from '../lazy';
+import { recomprimirFotos } from '../recomprimir';
 
 /**
  * Níveis de compressão.
@@ -29,17 +30,21 @@ import { loadPdfLib } from '../lazy';
  * explícita, com aviso na tela.
  */
 export const COMPRESSION_PRESETS = {
-  'sem-perda': { dpi: 0, quality: 0 },
-  equilibrada: { dpi: 150, quality: 0.82 },
-  maxima: { dpi: 110, quality: 0.62 },
+  // O padrão: só as fotos encolhem, e o texto continua texto.
+  recomendada: { dpi: 0, quality: 0, fotos: { dpi: 150, quality: 0.75 } },
+  forte: { dpi: 0, quality: 0, fotos: { dpi: 100, quality: 0.6 } },
+  'sem-perda': { dpi: 0, quality: 0, fotos: null },
+  // O nome antigo do meio-termo, para quem ainda mandar.
+  equilibrada: { dpi: 0, quality: 0, fotos: { dpi: 150, quality: 0.75 } },
+  maxima: { dpi: 110, quality: 0.62, fotos: null },
 } as const;
 
 export type CompressionLevel = keyof typeof COMPRESSION_PRESETS;
 
 export async function compress(ctx: RunContext): Promise<RunResult> {
   const { PDFDocument } = await loadPdfLib();
-  const level = (ctx.options.level as CompressionLevel) ?? 'sem-perda';
-  const preset = COMPRESSION_PRESETS[level] ?? COMPRESSION_PRESETS['sem-perda'];
+  const level = (ctx.options.level as CompressionLevel) ?? 'recomendada';
+  const preset = COMPRESSION_PRESETS[level] ?? COMPRESSION_PRESETS.recomendada;
   const notes: string[] = [];
   const outputs: OutputFile[] = [];
   const canvas = document.createElement('canvas');
@@ -76,6 +81,17 @@ export async function compress(ctx: RunContext): Promise<RunResult> {
       rasterized = await salvarPdf(out, source.senha);
     }
 
+    // O caminho do meio: as fotos encolhem e o resto fica. Arquivo com senha
+    // fica de fora — as imagens dele estão cifradas lá dentro.
+    let comFotosMenores: Blob | null = null;
+    if (preset.fotos && !source.senha) {
+      const doc = await openWithPdfLib(source.bytes);
+      const { trocadas } = await recomprimirFotos(doc, preset.fotos.dpi, preset.fotos.quality, (fracao) =>
+        ctx.onProgress(fileBase + fileWeight * 0.85 * fracao, `${source.name}: reduzindo as fotos`),
+      );
+      if (trocadas > 0) comFotosMenores = await salvarPdf(doc);
+    }
+
     // Rasterizar destrói o texto vetorial: num PDF que já é só texto o arquivo
     // costuma crescer. Por isso comparamos com a reescrita sem perda e ficamos
     // com o menor dos dois.
@@ -84,6 +100,10 @@ export async function compress(ctx: RunContext): Promise<RunResult> {
     const losslessBlob = await salvarPdf(lossless, source.senha);
 
     let chosen = rasterized && rasterized.size < losslessBlob.size ? rasterized : losslessBlob;
+    if (comFotosMenores && comFotosMenores.size < chosen.size) {
+      chosen = comFotosMenores;
+      notes.push(`${source.name}: as fotos foram reduzidas e recomprimidas; o texto continua texto.`);
+    }
     if (chosen.size >= source.size) {
       // Nenhum dos dois caminhos ganhou do arquivo que entrou.
       chosen = new Blob([copy(source.bytes)], { type: 'application/pdf' });

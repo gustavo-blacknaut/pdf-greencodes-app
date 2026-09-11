@@ -22,16 +22,19 @@ import { Dropzone } from './Dropzone';
 import { FilaDeArquivos } from './impressao/FilaDeArquivos';
 import {
   ACEITA,
-  CHAVE_DAS_OPCOES,
   OPCOES_PADRAO,
   conversaoPara,
+  esquecerOpcoes,
+  filaTerminada,
+  guardarOpcoes,
   lerOpcoesSalvas,
   proximoId,
 } from './impressao/fila';
+import { folhaNaTela as calcularFolhaNaTela } from './impressao/folhaNaTela';
 import { OpcoesDeImpressao } from './impressao/OpcoesDeImpressao';
 import { PreviaDaPagina, type FolhaNaTela } from './impressao/PreviaDaPagina';
 import type { EstadoDoItem, ItemFila } from './impressao/tipos';
-import { folhaEmMm, marcasDeCorte, marcasDeRegistro, passaDaFolha, posicionar, sobra } from '@/lib/impressao/layout';
+import { avisoDaFolha } from '@/lib/impressao/folha';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
 import { inspectFile, runOperation } from '@/lib/pdf/engine';
@@ -45,6 +48,7 @@ import {
   lerArquivoEscolhido,
   listarImpressoras,
   materializar,
+  montagemDe,
   registrarUso,
   tamanhoDe,
   type Impressora,
@@ -64,6 +68,7 @@ export function PrintWorkspace() {
   // 0 = ajustar à largura disponível; acima disso é zoom fixo (1 = 100%).
   const [zoom, setZoom] = useState(0);
   const [larguraDisponivel, setLarguraDisponivel] = useState(0);
+  const [alturaDisponivel, setAlturaDisponivel] = useState(0);
   // Escala que a última renderização usou. O zoom parte dela: sem isso, o
   // primeiro clique em "+" saltava de "ajustado a 188%" para 125%, encolhendo.
   const [escalaAtual, setEscalaAtual] = useState(1);
@@ -94,67 +99,29 @@ export function PrintWorkspace() {
   const [impressoras, setImpressoras] = useState<Impressora[] | null>(null);
   const [opcoes, setOpcoes] = useState<OpcoesImpressao>(OPCOES_PADRAO);
 
-  /**
-   * A folha e a arte em cima dela, em pixels de tela.
-   *
-   * Antes a prévia mostrava só a página, do tamanho que ela é — quem olhava
-   * não tinha como saber onde ela ia cair no papel nem quanto ia sobrar de
-   * branco, que é justamente o que se quer conferir antes de uma tiragem.
-   *
-   * A conta é a mesma que o HTML da impressão usa, em `lib/impressao/layout`.
-   * Aqui ela só é convertida de milímetro para pixel.
+  /*
+   * O que vai para a folha: as opções da pessoa mais a beirada da impressora
+   * escolhida, que só o driver sabe. A prévia e a impressão usam o mesmo.
    */
-  const folhaNaTela = useMemo<FolhaNaTela | null>(() => {
-    if (!arteMm || !larguraDisponivel) return null;
+  const bordaDaImpressora = impressoras?.find((i) => i.nome === opcoes.impressora)?.margens;
+  const opcoesDaFolha = useMemo<OpcoesImpressao>(
+    () => ({ ...opcoes, bordaMm: bordaDaImpressora }),
+    [opcoes, bordaDaImpressora],
+  );
+  const montagem = useMemo(() => montagemDe(opcoesDaFolha), [opcoesDaFolha]);
 
-    const folha = folhaEmMm(String(opcoes.papel ?? 'A4'), Boolean(opcoes.paisagem));
-    const ajuste = {
-      escala: (opcoes.escala ?? opcoes.ajuste ?? 'pagina') as NonNullable<typeof opcoes.escala>,
-      porcento: opcoes.escalaPorcento,
-      deslocaX: opcoes.deslocaXmm,
-      deslocaY: opcoes.deslocaYmm,
-      margemLados: opcoes.margemLadosMm,
-      margemCima: opcoes.margemCimaMm,
-    };
-    const caixa = posicionar(folha, arteMm, ajuste);
-
-    // A folha inteira cabe na largura disponível; o zoom multiplica dali.
-    const porMm = (larguraDisponivel / folha.largura) * (zoom > 0 ? zoom : 1);
-    const emPx = (valor: number) => valor * porMm;
-
-    const marcas: FolhaNaTela['marcas'] = [];
-    if (opcoes.marcasCorte) {
-      const espessura = Math.max(1, emPx(0.25));
-      for (const traco of marcasDeCorte(caixa)) {
-        marcas.push({
-          x: emPx(Math.min(traco.x1, traco.x2)),
-          y: emPx(Math.min(traco.y1, traco.y2)),
-          largura: Math.max(espessura, emPx(Math.abs(traco.x2 - traco.x1))),
-          altura: Math.max(espessura, emPx(Math.abs(traco.y2 - traco.y1))),
-        });
-      }
-    }
-    if (opcoes.marcasRegistro) {
-      const lado = Math.max(3, emPx(3));
-      for (const alvo of marcasDeRegistro(caixa)) {
-        marcas.push({ x: emPx(alvo.x) - lado / 2, y: emPx(alvo.y) - lado / 2, largura: lado, altura: lado });
-      }
-    }
-
-    return {
-      largura: emPx(folha.largura),
-      altura: emPx(folha.altura),
-      arte: { x: emPx(caixa.x), y: emPx(caixa.y), largura: emPx(caixa.largura), altura: emPx(caixa.altura) },
-      marcas,
-      espelho:
-        opcoes.espelho === 'horizontal'
-          ? 'scaleX(-1)'
-          : opcoes.espelho === 'vertical'
-            ? 'scaleY(-1)'
-            : undefined,
-      negativo: Boolean(opcoes.negativo),
-    };
-  }, [arteMm, larguraDisponivel, zoom, opcoes]);
+  /**
+   * A folha e a arte em cima dela, em pixels de tela — com a orientação que a
+   * página pede, a beirada que a impressora não alcança e o cinza do preto e
+   * branco. Quem olha confere ali o que vai sair, antes de gastar papel.
+   */
+  const folhaNaTela = useMemo<FolhaNaTela | null>(
+    () =>
+      arteMm && larguraDisponivel
+        ? calcularFolhaNaTela(arteMm, montagem, { largura: larguraDisponivel, altura: alturaDisponivel }, zoom)
+        : null,
+    [arteMm, larguraDisponivel, alturaDisponivel, zoom, montagem],
+  );
 
   /*
    * O desenho da folha, visto de dentro do efeito que renderiza.
@@ -169,23 +136,7 @@ export function PrintWorkspace() {
   }, [folhaNaTela]);
 
   /** O aviso de que parte da arte não vai sair impressa. */
-  const avisoDeSobra = useMemo(() => {
-    if (!arteMm) return null;
-    const folha = folhaEmMm(String(opcoes.papel ?? 'A4'), Boolean(opcoes.paisagem));
-    const caixa = posicionar(folha, arteMm, {
-      escala: (opcoes.escala ?? opcoes.ajuste ?? 'pagina') as NonNullable<typeof opcoes.escala>,
-      porcento: opcoes.escalaPorcento,
-      deslocaX: opcoes.deslocaXmm,
-      deslocaY: opcoes.deslocaYmm,
-      margemLados: opcoes.margemLadosMm,
-      margemCima: opcoes.margemCimaMm,
-    });
-    if (!passaDaFolha(folha, caixa)) return null;
-
-    const fora = sobra(folha, caixa);
-    const maior = Math.max(fora.esquerda, fora.direita, fora.cima, fora.baixo);
-    return `A arte passa da folha em até ${maior.toFixed(1)} mm. O que fica de fora não sai impresso.`;
-  }, [arteMm, opcoes]);
+  const avisoDeSobra = useMemo(() => (arteMm ? avisoDaFolha(arteMm, montagem) : null), [arteMm, montagem]);
   const [imprimindo, setImprimindo] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -209,40 +160,48 @@ export function PrintWorkspace() {
     });
   }, []);
 
+  // A fila é lida por ref porque quem chama pode ser a inscrição no arrastar,
+  // montada uma vez só.
+  const filaRef = useRef(fila);
+  filaRef.current = fila;
+
   const adicionar = useCallback((arquivos: (File | Blob)[], nomes?: string[]) => {
     setErroGeral(null);
-    setFila((atual) => [
-      ...atual,
-      ...arquivos.map((arquivo, i) => {
-        const nomeOriginal = nomes?.[i] ?? (arquivo instanceof File ? arquivo.name : 'documento.pdf');
-        return {
-          id: proximoId(),
-          nome: replaceExtension(nomeOriginal, 'pdf'),
-          origem: arquivo,
-          nomeOriginal,
-          blob: null,
-          paginas: 0,
-          estado: 'esperando' as EstadoDoItem,
-        };
-      }),
-    ]);
+    const novos = arquivos.map((arquivo, i) => {
+      const nomeOriginal = nomes?.[i] ?? (arquivo instanceof File ? arquivo.name : 'documento.pdf');
+      return {
+        id: proximoId(),
+        nome: replaceExtension(nomeOriginal, 'pdf'),
+        origem: arquivo,
+        nomeOriginal,
+        blob: null,
+        paginas: 0,
+        estado: 'esperando' as EstadoDoItem,
+      };
+    });
+    // Depois de imprimir, o arquivo novo começa outra fila: o que já saiu
+    // não vai de novo, e as páginas escolhidas para o documento anterior não
+    // valem para este.
+    if (filaTerminada(filaRef.current)) {
+      setIntervalo('');
+      setAviso(null);
+    }
+    setFila((atual) => (filaTerminada(atual) ? novos : [...atual, ...novos]));
   }, []);
 
   /**
    * O que chega do seletor ou arrastado para a janela.
    *
    * A prévia desenha a página, então precisa dos bytes: o PDF grande que o
-   * seletor deixou no disco é lido aqui. A fila é lida por ref porque quem
-   * chama pode ser a inscrição no arrastar, montada uma vez só.
+   * seletor deixou no disco é lido aqui.
    */
-  const filaRef = useRef(fila);
-  filaRef.current = fila;
   const receberArquivos = useCallback(
     async (arquivos: File[]) => {
       try {
+        const ficam = filaTerminada(filaRef.current) ? [] : filaRef.current;
         validarFila(
           arquivos.map((a) => ({ name: a.name, size: tamanhoDe(a) })),
-          filaRef.current.map((i) => ({ size: i.origem.size })),
+          ficam.map((i) => ({ size: i.origem.size })),
         );
         adicionar(await Promise.all(arquivos.map(materializar)));
       } catch (e) {
@@ -451,9 +410,6 @@ export function PrintWorkspace() {
         if (!desenhaFolhaRef.current) {
           tela.style.width = `${Math.round(natural.width * escalaCss)}px`;
           tela.style.height = `${Math.round(natural.height * escalaCss)}px`;
-        } else {
-          tela.style.removeProperty('width');
-          tela.style.removeProperty('height');
         }
 
         const contexto = tela.getContext('2d');
@@ -500,35 +456,7 @@ export function PrintWorkspace() {
     void (async () => {
       setMontando(true);
       try {
-        let blob = item.blob!;
-
-        if (intervalo.trim()) {
-          const arquivo = new File([blob], item.nome, { type: 'application/pdf' });
-          const carregado = await inspectFile(arquivo, item.id);
-          const r = await runOperation('split', {
-            files: [carregado],
-            options: { mode: 'extract', extractRanges: intervalo },
-            onProgress: () => {},
-          });
-          blob = r.files[0].blob;
-        }
-
-        if (porFolha > 1) {
-          const arquivo = new File([blob], item.nome, { type: 'application/pdf' });
-          const carregado = await inspectFile(arquivo, item.id);
-          const r = await runOperation('n-up', {
-            files: [carregado],
-            options: { perSheet: porFolha, espacamentoMm: 2, margemMm: 4, border: false },
-            onProgress: () => {},
-          });
-          blob = r.files[0].blob;
-        }
-
-        const pdfjs = await loadPdfJs();
-        const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
-        const paginas = doc.numPages;
-        await doc.destroy();
-
+        const { blob, paginas } = await prepararSaida(item, porFolha, intervalo);
         if (!vivo) return;
         setMontado({ id: item.id, porFolha, intervalo, blob, paginas });
         setErroGeral(null);
@@ -552,11 +480,24 @@ export function PrintWorkspace() {
   useEffect(() => {
     const moldura = molduraRef.current;
     if (!moldura) return;
-    const medir = () => setLarguraDisponivel(moldura.clientWidth);
+    const medir = () => {
+      // Sem o recuo da moldura: medir com ele deixava a folha 32 px mais
+      // larga que o espaço, e a prévia "ajustada" rolava de lado.
+      const estilo = getComputedStyle(moldura);
+      const lados = parseFloat(estilo.paddingLeft) + parseFloat(estilo.paddingRight);
+      const cimaBaixo = parseFloat(estilo.paddingTop) + parseFloat(estilo.paddingBottom);
+      setLarguraDisponivel(Math.max(0, moldura.clientWidth - lados));
+      // A moldura cresce até 70% da janela: a folha inteira cabe nisso.
+      setAlturaDisponivel(Math.max(0, window.innerHeight * 0.7 - cimaBaixo));
+    };
     medir();
     const observador = new ResizeObserver(medir);
     observador.observe(moldura);
-    return () => observador.disconnect();
+    window.addEventListener('resize', medir);
+    return () => {
+      observador.disconnect();
+      window.removeEventListener('resize', medir);
+    };
   }, [item?.id]);
 
   function mudar<K extends keyof OpcoesImpressao>(chave: K, valor: OpcoesImpressao[K]) {
@@ -602,16 +543,12 @@ export function PrintWorkspace() {
    * Erro num item não derruba o resto: ele fica marcado e a fila segue.
    */
   async function imprimirTudo() {
-    const prontos = fila.filter((i) => i.blob);
+    const prontos = aImprimir;
     if (!prontos.length) return;
 
     setAviso(null);
     setErroGeral(null);
-    try {
-      localStorage.setItem(CHAVE_DAS_OPCOES, JSON.stringify(opcoes));
-    } catch {
-      /* modo anônimo: imprime do mesmo jeito */
-    }
+    guardarOpcoes(opcoes);
 
     let enviados = 0;
     let trabalhos = 0;
@@ -622,18 +559,30 @@ export function PrintWorkspace() {
       const tarefa = atividade.abrir(`Imprimir ${alvo.nomeOriginal}`, 'impressao');
       atividade.registrar(
         tarefa,
-        `${opcoes.impressora ?? 'impressora padrão'} · ${opcoes.papel} · ${opcoes.dpi} DPI · ${opcoes.colorido === false ? 'preto e branco' : 'colorido'}`,
+        `${opcoes.impressora ?? 'impressora padrão'} · ${opcoes.papel} · ${montagem.dpi} DPI · ${opcoes.colorido === false ? 'preto e branco' : 'colorido'}`,
         0,
       );
-      const saida = paraSaida(alvo);
-      if (!saida) continue;
+      // A montagem da prévia só existe para o arquivo que está nela. Os outros
+      // da fila são preparados aqui, com as mesmas páginas e o mesmo arranjo —
+      // antes eles eram pulados em silêncio.
+      let saida = paraSaida(alvo);
+      if (!saida) {
+        try {
+          saida = await prepararSaida(alvo, porFolha, intervalo);
+        } catch (e) {
+          const erro = e instanceof Error ? e.message : 'Não foi possível preparar as páginas.';
+          setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'erro', erro } : i)));
+          atividade.fechar(tarefa, 'erro', erro);
+          continue;
+        }
+      }
 
       let falhou: string | undefined;
       const partes = await fatiar(saida.blob, saida.paginas, lote);
 
       for (let n = 0; n < partes.length; n += 1) {
         const nome = partes.length > 1 ? alvo.nome.replace(/.pdf$/i, `-parte${n + 1}.pdf`) : alvo.nome;
-        const r = await imprimirArquivo(nome, partes[n], opcoes, (feitas, total) =>
+        const r = await imprimirArquivo(nome, partes[n], opcoesDaFolha, (feitas, total) =>
           atividade.registrar(
             tarefa,
             `Desenhando página ${feitas} de ${total}` + (partes.length > 1 ? ` (lote ${n + 1}/${partes.length})` : ''),
@@ -675,9 +624,34 @@ export function PrintWorkspace() {
     );
   }
 
-  const campo = 'w-full rounded-xl border bg-bg/60 px-3 py-2.5 text-sm text-ink outline-none transition';
+  /** Tira os arquivos e o que estava preso a eles: prévia, montagem, avisos. */
+  function limparFila() {
+    setFila([]);
+    setSelecionado(null);
+    setMontado(null);
+    setArteMm(null);
+    setIntervalo('');
+    setAviso(null);
+    setErroGeral(null);
+  }
+
+  /** Volta tudo ao padrão: arquivos, opções e as escolhas guardadas. */
+  function resetar() {
+    esquecerOpcoes();
+    const padrao = impressoras?.find((i) => i.padrao) ?? impressoras?.[0];
+    setOpcoes({ ...OPCOES_PADRAO, impressora: padrao?.nome });
+    setPorFolha(1);
+    setLote(0);
+    setZoom(0);
+    limparFila();
+  }
+
   const raiz = noAppPelaRota ? '/app' : '/';
   const prontos = fila.filter((i) => i.blob);
+  // O que o botão manda: só o que ainda não saiu. Com tudo impresso, manda
+  // de novo — é o "imprimir outra vez" de quem precisa de mais uma cópia.
+  const pendentes = prontos.filter((i) => i.estado !== 'impresso');
+  const aImprimir = pendentes.length ? pendentes : prontos;
   const totalPaginas = prontos.reduce((soma, i) => soma + i.paginas, 0);
   const preparando = fila.some((i) => i.estado === 'esperando' || i.estado === 'convertendo');
 
@@ -761,7 +735,8 @@ export function PrintWorkspace() {
             porFolha={porFolha}
             montando={montando}
             lote={lote}
-            prontos={prontos.length}
+            prontos={aImprimir.length}
+            deNovo={!pendentes.length && prontos.length > 0}
             imprimindo={imprimindo}
             preparando={preparando}
             aviso={aviso}
@@ -770,13 +745,53 @@ export function PrintWorkspace() {
             onPorFolha={setPorFolha}
             onLote={setLote}
             onImprimir={() => void imprimirTudo()}
-            onLimpar={() => {
-              setFila([]);
-              setAviso(null);
-            }}
+            onLimpar={limparFila}
+            onResetar={resetar}
           />
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Escolhe as páginas e monta as folhas de um arquivo da fila.
+ *
+ * Nessa ordem, e não na contrária: escolher "1-4" com 4 por folha tem que dar
+ * uma folha com as quatro primeiras páginas, não a primeira folha de um
+ * documento já montado.
+ */
+async function prepararSaida(
+  alvo: ItemFila,
+  porFolha: number,
+  intervalo: string,
+): Promise<{ blob: Blob; paginas: number }> {
+  if (!alvo.blob) throw new Error('O arquivo ainda não está pronto.');
+  let blob: Blob = alvo.blob;
+
+  if (intervalo.trim()) {
+    const carregado = await inspectFile(new File([blob], alvo.nome, { type: 'application/pdf' }), alvo.id);
+    const r = await runOperation('split', {
+      files: [carregado],
+      options: { mode: 'extract', extractRanges: intervalo },
+      onProgress: () => {},
+    });
+    blob = r.files[0].blob;
+  }
+
+  if (porFolha > 1) {
+    const carregado = await inspectFile(new File([blob], alvo.nome, { type: 'application/pdf' }), alvo.id);
+    const r = await runOperation('n-up', {
+      files: [carregado],
+      options: { perSheet: porFolha, espacamentoMm: 2, margemMm: 4, border: false },
+      onProgress: () => {},
+    });
+    blob = r.files[0].blob;
+  }
+
+  const pdfjs = await loadPdfJs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  const paginas = doc.numPages;
+  await doc.destroy();
+  return { blob, paginas };
 }

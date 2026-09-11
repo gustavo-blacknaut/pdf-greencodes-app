@@ -206,11 +206,62 @@ class TestOtimizar:
         resultado = rodar("comprimir", [criar_pdf(paginas=1, senha="x")], {}, senhas=["x"], saida=destino)
         assert any("senha" in nota.lower() for nota in resultado["notas"])
 
-    def test_redesenhar_descarta_o_texto_e_avisa(self, criar_pdf, rodar, tmp_path):
-        destino = str(tmp_path / "redesenhado.pdf")
-        resultado = rodar("comprimir", [criar_pdf(paginas=2)], {"redesenhar": True, "nivel": "medio"}, saida=destino)
+    @staticmethod
+    def _pdf_com_foto(caminho: str, paginas: int = 2) -> str:
+        """Paginas com texto e uma foto pesada, como a do celular num orcamento.
 
-        assert any("nao e selecionavel" in n or "selecionavel" in n for n in resultado["notas"])
+        A foto e uma pagina de formas coloridas renderizada a 300 DPI e salva
+        em JPEG de alta qualidade: tem detalhe como foto de verdade, e ao
+        contrario de ruido, encolhe quando a resolucao cai.
+        """
+        arte = pymupdf.open()
+        tela = arte.new_page(width=600, height=450)
+        for i in range(60):
+            cor = ((i * 37) % 255 / 255, (i * 71) % 255 / 255, (i * 13) % 255 / 255)
+            tela.draw_circle((30 + (i * 53) % 560, 30 + (i * 29) % 400), 20 + i % 40, color=cor, fill=cor)
+        foto = tela.get_pixmap(dpi=360).tobytes("jpeg", jpg_quality=95)
+        arte.close()
+
+        doc = pymupdf.open()
+        for n in range(1, paginas + 1):
+            pagina = doc.new_page()
+            pagina.insert_text((72, 72), f"Pagina {n} do orcamento", fontsize=14)
+            pagina.insert_image(pymupdf.Rect(72, 100, 523, 438), stream=foto)
+        doc.save(caminho)
+        doc.close()
+        return caminho
+
+    def test_recomendada_encolhe_as_fotos_e_mantem_o_texto(self, rodar, tmp_path):
+        origem = self._pdf_com_foto(str(tmp_path / "orcamento.pdf"))
+        destino = str(tmp_path / "menor.pdf")
+        resultado = rodar("comprimir", [origem], {"modo": "imagens", "dpi": 150, "qualidade": 75}, saida=destino)
+
+        assert resultado["bytesSaida"] < resultado["bytesEntrada"] * 0.5, (
+            f"a compressao recomendada tinha que cortar pelo menos metade: {resultado['bytesEntrada']} -> {resultado['bytesSaida']}"
+        )
+        doc = pymupdf.open(destino)
+        assert "Pagina 1 do orcamento" in doc[0].get_text(), "o texto tinha que continuar texto"
+        largura = doc.extract_image(doc[0].get_images()[0][0])["width"]
+        assert largura < 1300, f"a foto devia ter descido para uns 150 DPI, e ficou com {largura} px"
+        doc.close()
+
+    def test_comprimir_nunca_entrega_arquivo_maior(self, criar_pdf, rodar, tmp_path):
+        # So texto: redesenhar deixa maior. O que sai tem que ser o original.
+        origem = criar_pdf(paginas=2)
+        destino = str(tmp_path / "menor.pdf")
+        resultado = rodar("comprimir", [origem], {"redesenhar": True, "nivel": "medio"}, saida=destino)
+
+        assert resultado["bytesSaida"] <= resultado["bytesEntrada"]
+        with open(origem, "rb") as a, open(destino, "rb") as b:
+            assert a.read() == b.read(), "maior que o original, o original tinha que voltar"
+        assert any("original foi mantido" in nota for nota in resultado["notas"])
+
+    def test_redesenhar_descarta_o_texto_e_avisa(self, rodar, tmp_path):
+        origem = self._pdf_com_foto(str(tmp_path / "orcamento.pdf"))
+        destino = str(tmp_path / "redesenhado.pdf")
+        resultado = rodar("comprimir", [origem], {"redesenhar": True, "nivel": "muito"}, saida=destino)
+
+        assert any("selecionavel" in n for n in resultado["notas"])
         doc = pymupdf.open(destino)
         assert doc[0].get_text().strip() == "", "redesenhado, nao deveria sobrar texto"
         doc.close()
