@@ -45,8 +45,10 @@ copyFileSync(comVersao, fixo);
 
 const titulo = readFileSync(notas, 'utf8').match(/^#\s+(.+)$/m)?.[1] ?? `PDF.GreenCodes ${versao}`;
 console.log(`Publicando v${versao}: ${titulo}`);
+// `gh.exe` com a extensão: dentro do `npm run`, no Windows, chamar só `gh`
+// falhou sem achar o programa, e a release não saiu.
 execFileSync(
-  'gh',
+  process.platform === 'win32' ? 'gh.exe' : 'gh',
   ['release', 'create', `v${versao}`, comVersao, fixo, '--repo', REPOSITORIO, '--target', 'main', '--title', `v${versao} — ${titulo}`, '--notes-file', notas],
   { stdio: 'inherit' },
 );
