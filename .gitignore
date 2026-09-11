@@ -18,5 +18,9 @@ impressora/impressora.exe
 src-tauri/target/
 src-tauri/gen/
 
+# A saida do build antigo, do Electron. Nao e mais gerada, mas continua nas
+# pastas de quem ja compilou a versao 3 - e tem o Python embutido inteiro.
+dist-app/
+
 # Saida do `npm run provar-impressao`: PDFs e PNGs de conferencia.
 .prova-impressao/
