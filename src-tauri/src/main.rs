@@ -4,9 +4,11 @@
 mod arquivos;
 mod impressao;
 mod motor;
+mod permitidos;
 mod processos;
 mod resultados;
 mod sistema;
+mod uso;
 
 use std::fs::File;
 use std::io::Read;
@@ -18,11 +20,12 @@ use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use impressao::{OpcoesDeImpressao, Preparada, Sessoes};
 use motor::Motor;
+use permitidos::{dentro_de, Permitidos};
 
 /// Os arquivos que o Windows mandou abrir e a interface ainda nao pegou.
 ///
@@ -31,7 +34,12 @@ use motor::Motor;
 #[derive(Default)]
 struct Fila(Mutex<Vec<String>>);
 
-const EXTENSOES_ACEITAS: &[&str] = &["pdf", "jpg", "jpeg", "png", "webp", "docx", "txt"];
+/// O que o programa abre: o que o seletor, o arrastar e o "Abrir com"
+/// aceitam. Tem que andar junto com o `accept` das ferramentas.
+const EXTENSOES_ACEITAS: &[&str] = &[
+    "pdf", "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "heic", "heif", "docx", "xlsx", "pptx",
+    "txt",
+];
 
 /* --------------------------------------------------------------- utilidades */
 
@@ -43,9 +51,7 @@ const EXTENSOES_ACEITAS: &[&str] = &["pdf", "jpg", "jpeg", "png", "webp", "docx"
 /// nao e ASCII: por isso vao codificados.
 fn cabecalho(pedido: &Request<'_>, chave: &str) -> Option<String> {
     let bruto = pedido.headers().get(chave)?.to_str().ok()?;
-    Some(
-        percent_decode(bruto),
-    )
+    Some(percent_decode(bruto))
 }
 
 fn percent_decode(texto: &str) -> String {
@@ -122,6 +128,16 @@ fn resposta_de<T: std::fmt::Display>(resultado: Result<PathBuf, T>) -> Value {
     }
 }
 
+/// Grava a saida e deixa a janela voltar a ela depois (abrir, mostrar na
+/// pasta), contando o arquivo no uso.
+fn guardado(app: &AppHandle, resultado: Result<PathBuf, String>) -> Value {
+    if let Ok(caminho) = &resultado {
+        app.state::<Permitidos>().permitir(caminho);
+        app.state::<uso::Registro>().salvou(app, 1);
+    }
+    resposta_de(resultado)
+}
+
 /* ------------------------------------------------------------- aplicativo */
 
 #[tauri::command]
@@ -129,32 +145,48 @@ fn versao(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// A interface avisou que esta pronta; devolve o que estava na fila.
-#[tauri::command]
-fn sistema_pronto(fila: State<'_, Fila>) -> Vec<Value> {
-    let Ok(mut pendentes) = fila.0.lock() else {
-        return Vec::new();
-    };
-    let caminhos: Vec<String> = pendentes.drain(..).collect();
-    caminhos.iter().map(|c| descrever(c)).collect()
-}
-
 /* ---------------------------------------------------------------- arquivo */
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Escolhido {
     nome: String,
     caminho: String,
     tamanho: u64,
 }
 
-fn descrever(caminho: &str) -> Value {
-    let alvo = Path::new(caminho);
-    json!({
-        "nome": alvo.file_name().and_then(|n| n.to_str()).unwrap_or("arquivo"),
-        "caminho": caminho,
-        "tamanho": alvo.metadata().map(|m| m.len()).unwrap_or(0),
+/// Descreve um arquivo que a pessoa entregou ao programa, e o anota como
+/// permitido. Pasta, atalho quebrado ou formato que o programa nao abre ficam
+/// de fora.
+fn entregue(app: &AppHandle, caminho: &Path) -> Option<Escolhido> {
+    let extensao = caminho
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    if !EXTENSOES_ACEITAS.contains(&extensao.as_str()) {
+        return None;
+    }
+    let dados = caminho.metadata().ok().filter(|m| m.is_file())?;
+    app.state::<Permitidos>().permitir(caminho);
+    Some(Escolhido {
+        nome: caminho
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("arquivo")
+            .to_string(),
+        caminho: caminho.to_string_lossy().to_string(),
+        tamanho: dados.len(),
     })
+}
+
+/// A interface avisou que esta pronta; devolve o que estava na fila.
+#[tauri::command]
+fn sistema_pronto(app: AppHandle, fila: State<'_, Fila>) -> Vec<Escolhido> {
+    let Ok(mut pendentes) = fila.0.lock() else {
+        return Vec::new();
+    };
+    let caminhos: Vec<String> = pendentes.drain(..).collect();
+    caminhos.iter().filter_map(|c| entregue(&app, Path::new(c))).collect()
 }
 
 /// Abre o dialogo nativo de salvar e grava o arquivo escolhido.
@@ -170,8 +202,10 @@ async fn salvar_arquivo(app: AppHandle, pedido: Request<'_>) -> Result<Value, St
         .unwrap_or("pdf")
         .to_lowercase();
 
+    let dialogo = app.clone();
     let escolha = esperar(move |envia| {
-        app.dialog()
+        dialogo
+            .dialog()
             .file()
             .set_title("Salvar arquivo")
             .set_file_name(&nome)
@@ -188,22 +222,27 @@ async fn salvar_arquivo(app: AppHandle, pedido: Request<'_>) -> Result<Value, St
         return Ok(json!({ "ok": false, "cancelado": true }));
     };
 
-    Ok(resposta_de(
-        arquivos::gravar(&destino, &bytes).map(|()| destino.clone()),
-    ))
+    Ok(guardado(&app, arquivos::gravar(&destino, &bytes).map(|()| destino.clone())))
 }
 
-/// Grava sem perguntar nada, na pasta dos resultados, com nome numerico.
+/// Grava sem perguntar nada, solto em Downloads, com nome de ID.
 #[tauri::command]
 async fn salvar_numerado(app: AppHandle, pedido: Request<'_>) -> Result<Value, String> {
     let bytes = corpo(&pedido)?;
     let nome = cabecalho(&pedido, "nome").unwrap_or_else(|| "arquivo.pdf".into());
     let apagar = cabecalho(&pedido, "apagar").as_deref() == Some("1");
-    em_segundo_plano(move || resposta_de(resultados::salvar(&app, &nome, &bytes, apagar))).await
+    em_segundo_plano(move || {
+        let resultado = resultados::salvar(&app, &nome, &bytes, apagar);
+        guardado(&app, resultado)
+    })
+    .await
 }
 
 #[tauri::command(async)]
 fn auto_exclusao(app: AppHandle, caminho: String, ligado: bool) -> Value {
+    if let Err(erro) = app.state::<Permitidos>().exigir(&caminho) {
+        return json!({ "ok": false, "erro": erro });
+    }
     let feito = if ligado {
         resultados::marcar(&app, &caminho)
     } else {
@@ -218,8 +257,10 @@ fn auto_exclusao(app: AppHandle, caminho: String, ligado: bool) -> Value {
 /// Escolhe a pasta de destino de uma vez, para gravar varios arquivos nela.
 #[tauri::command]
 async fn escolher_pasta(app: AppHandle) -> Value {
+    let dialogo = app.clone();
     let escolha = esperar(move |envia| {
-        app.dialog()
+        dialogo
+            .dialog()
             .file()
             .set_title("Escolher a pasta de destino")
             .pick_folder(move |pasta| {
@@ -230,23 +271,31 @@ async fn escolher_pasta(app: AppHandle) -> Value {
     .flatten();
 
     match escolha.and_then(|c| c.into_path().ok()) {
-        Some(pasta) => json!({ "ok": true, "caminho": pasta.to_string_lossy() }),
+        Some(pasta) => {
+            // So a pasta que a pessoa escolheu aceita gravacao pelo `gravar_em`.
+            app.state::<Permitidos>().permitir(&pasta);
+            json!({ "ok": true, "caminho": pasta.to_string_lossy() })
+        }
         None => json!({ "ok": false, "cancelado": true }),
     }
 }
 
-/// Grava um arquivo numa pasta ja escolhida.
+/// Grava um arquivo numa pasta ja escolhida no dialogo.
 #[tauri::command]
-async fn gravar_em(pedido: Request<'_>) -> Result<Value, String> {
+async fn gravar_em(app: AppHandle, pedido: Request<'_>) -> Result<Value, String> {
     let bytes = corpo(&pedido)?;
     let pasta = cabecalho(&pedido, "pasta").ok_or("faltou a pasta de destino")?;
     let nome = cabecalho(&pedido, "nome").ok_or("faltou o nome do arquivo")?;
+    // Sem esta conferencia, a janela escolheria a pasta sozinha - a de
+    // Inicializar do Windows, por exemplo.
+    let pasta = app.state::<Permitidos>().exigir(&pasta)?;
 
     // Nunca sobrescreve: quem manda trinta paginas separadas para a mesma
     // pasta nao espera que a segunda apague a primeira.
     em_segundo_plano(move || {
-        let destino = arquivos::caminho_livre(Path::new(&pasta), &nome);
-        resposta_de(arquivos::gravar(&destino, &bytes).map(|()| destino.clone()))
+        let destino = arquivos::caminho_livre(&pasta, &nome);
+        let resultado = arquivos::gravar(&destino, &bytes).map(|()| destino.clone());
+        guardado(&app, resultado)
     })
     .await
 }
@@ -265,9 +314,11 @@ async fn escolher_arquivos(app: AppHandle, extensoes: Option<Vec<String>>) -> Ve
         .map(|e| e.trim_start_matches('.').to_lowercase())
         .collect();
 
+    let dialogo = app.clone();
     let escolha = esperar(move |envia| {
         let referencias: Vec<&str> = lista.iter().map(String::as_str).collect();
-        app.dialog()
+        dialogo
+            .dialog()
             .file()
             .set_title("Escolher arquivos")
             .add_filter("Arquivos aceitos", &referencias)
@@ -282,27 +333,17 @@ async fn escolher_arquivos(app: AppHandle, extensoes: Option<Vec<String>>) -> Ve
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| c.into_path().ok())
-        .filter_map(|caminho| {
-            let tamanho = caminho.metadata().ok()?.len();
-            Some(Escolhido {
-                nome: caminho
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("arquivo")
-                    .to_string(),
-                caminho: caminho.to_string_lossy().to_string(),
-                tamanho,
-            })
-        })
+        .filter_map(|caminho| entregue(&app, &caminho))
         .collect()
 }
 
 /// Le um arquivo em pedacos, avisando o quanto ja leu.
 ///
 /// Em pedacos, e nao de uma vez, para a barra andar de verdade: uma leitura
-/// inteira de 400 MB fica muda ate terminar.
+/// inteira de 400 MB fica muda ate terminar. So le o que a pessoa entregou.
 #[tauri::command]
 async fn ler_arquivo(app: AppHandle, caminho: String) -> Result<Response, String> {
+    app.state::<Permitidos>().exigir(&caminho)?;
     em_segundo_plano(move || ler_em_pedacos(&app, &caminho)).await?
 }
 
@@ -344,17 +385,16 @@ fn ler_em_pedacos(app: &AppHandle, caminho: &str) -> Result<Response, String> {
 }
 
 /// Abre o arquivo no programa padrao do Windows.
+///
+/// So o que o programa entregou: aberto pelo Windows, um `.exe` roda.
 #[tauri::command]
 fn abrir(app: AppHandle, caminho: String) -> Value {
-    if !Path::new(&caminho).exists() {
-        return json!({ "ok": false, "erro": "Arquivo nao encontrado." });
+    if let Err(erro) = app.state::<Permitidos>().exigir(&caminho) {
+        return json!({ "ok": false, "erro": erro });
     }
     match tauri_plugin_opener::open_path(&caminho, None::<&str>) {
         Ok(()) => json!({ "ok": true, "caminho": caminho }),
-        Err(erro) => {
-            let _ = app;
-            json!({ "ok": false, "erro": erro.to_string() })
-        }
+        Err(erro) => json!({ "ok": false, "erro": erro.to_string() }),
     }
 }
 
@@ -368,10 +408,10 @@ fn abrir(app: AppHandle, caminho: String) -> Value {
 /// principal trava o Windows para sempre (wry#583).
 #[tauri::command]
 async fn abrir_aqui(app: AppHandle, caminho: String) -> Value {
-    let alvo = Path::new(&caminho);
-    if !alvo.exists() {
-        return json!({ "ok": false, "erro": "Arquivo nao encontrado." });
+    if let Err(erro) = app.state::<Permitidos>().exigir(&caminho) {
+        return json!({ "ok": false, "erro": erro });
     }
+    let alvo = Path::new(&caminho);
 
     let titulo = alvo
         .file_name()
@@ -385,13 +425,7 @@ async fn abrir_aqui(app: AppHandle, caminho: String) -> Value {
 
     // Um rotulo por arquivo, e sem acento: o rotulo da janela vira nome de
     // recurso interno e so aceita letras, numeros, hifen e sublinhado.
-    let rotulo = format!(
-        "leitor-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
+    let rotulo = format!("leitor-{}", resultados::novo_id());
 
     match WebviewWindowBuilder::new(&app, rotulo, WebviewUrl::External(url))
         .title(titulo)
@@ -408,9 +442,9 @@ async fn abrir_aqui(app: AppHandle, caminho: String) -> Value {
 
 /// Abre no navegador padrao do sistema.
 #[tauri::command]
-fn abrir_no_navegador(caminho: String) -> Value {
-    if !Path::new(&caminho).exists() {
-        return json!({ "ok": false, "erro": "Arquivo nao encontrado." });
+fn abrir_no_navegador(app: AppHandle, caminho: String) -> Value {
+    if let Err(erro) = app.state::<Permitidos>().exigir(&caminho) {
+        return json!({ "ok": false, "erro": erro });
     }
     // Barras normais: e o que o navegador entende num endereco file://.
     let endereco = format!("file:///{}", caminho.replace('\\', "/"));
@@ -421,14 +455,15 @@ fn abrir_no_navegador(caminho: String) -> Value {
 }
 
 #[tauri::command]
-fn revelar(caminho: String) -> bool {
-    Path::new(&caminho).exists() && tauri_plugin_opener::reveal_item_in_dir(&caminho).is_ok()
+fn revelar(app: AppHandle, caminho: String) -> bool {
+    app.state::<Permitidos>().exigir(&caminho).is_ok()
+        && tauri_plugin_opener::reveal_item_in_dir(&caminho).is_ok()
 }
 
-/// Abre a pasta onde os resultados sao salvos.
+/// Abre a pasta onde os resultados sao salvos: a propria Downloads.
 ///
 /// "Onde foi parar o arquivo" e a pergunta mais comum depois de rodar alguma
-/// coisa, e todo resultado salvo pelo botao Salvar cai aqui.
+/// coisa, e todo resultado salvo cai ali.
 #[tauri::command]
 fn abrir_pasta_dos_resultados(app: AppHandle) -> Value {
     match resultados::pasta(&app) {
@@ -442,8 +477,48 @@ fn abrir_pasta_dos_resultados(app: AppHandle) -> Value {
 
 /* ------------------------------------------------------------------ motor */
 
+/// A pasta onde ficam as pastas de trabalho do motor.
+fn temporarias_do_motor() -> PathBuf {
+    std::env::temp_dir().join("pdf-greencodes")
+}
+
+/// Uma pasta de trabalho do motor, ja existente.
+fn pasta_de_trabalho(pasta: &str) -> Result<PathBuf, String> {
+    let alvo = PathBuf::from(pasta);
+    if dentro_de(&alvo, &temporarias_do_motor()) {
+        Ok(alvo)
+    } else {
+        Err("pasta de trabalho do motor invalida".into())
+    }
+}
+
+/// O motor so trabalha em cima do que e dele ou do que a pessoa entregou.
+///
+/// Sem isto, a janela mandaria o motor abrir qualquer PDF do disco e depois
+/// leria o resultado de volta - o mesmo buraco do `ler_arquivo`, por outra
+/// porta.
+fn conferir_pedido(app: &AppHandle, pedido: &Value) -> Result<(), String> {
+    let permitidos = app.state::<Permitidos>();
+    let nossa = temporarias_do_motor();
+    for arquivo in pedido.get("arquivos").and_then(Value::as_array).into_iter().flatten() {
+        let caminho = arquivo.as_str().ok_or("caminho de arquivo invalido")?;
+        let alvo = Path::new(caminho);
+        if !dentro_de(alvo, &nossa) && !permitidos.permitido(alvo) {
+            return Err("o motor so abre arquivo escolhido neste programa".into());
+        }
+    }
+    if let Some(saida) = pedido.get("saida").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        let pai = Path::new(saida).parent().unwrap_or(Path::new(""));
+        if !dentro_de(pai, &nossa) && pai.canonicalize().ok() != nossa.canonicalize().ok() {
+            return Err("o motor so grava na pasta de trabalho dele".into());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn motor_executar(app: AppHandle, acao: String, pedido: Value) -> Result<Value, String> {
+    conferir_pedido(&app, &pedido)?;
     em_segundo_plano(move || app.state::<Motor>().executar(&app, &acao, pedido)).await?
 }
 
@@ -458,13 +533,7 @@ fn motor_cancelar(motor: State<'_, Motor>) -> bool {
 /// memoria. Esta pasta e a ponte entre os dois mundos.
 #[tauri::command]
 fn motor_pasta_temporaria() -> Result<String, String> {
-    let pasta = temporarias_do_motor().join(format!(
-        "motor-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let pasta = temporarias_do_motor().join(format!("motor-{}", resultados::novo_id()));
     std::fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
     Ok(pasta.to_string_lossy().to_string())
 }
@@ -472,11 +541,39 @@ fn motor_pasta_temporaria() -> Result<String, String> {
 #[tauri::command]
 async fn motor_gravar_entrada(pedido: Request<'_>) -> Result<String, String> {
     let bytes = corpo(&pedido)?;
-    let pasta = cabecalho(&pedido, "pasta").ok_or("faltou a pasta temporaria")?;
+    let pasta = pasta_de_trabalho(&cabecalho(&pedido, "pasta").ok_or("faltou a pasta temporaria")?)?;
     let nome = cabecalho(&pedido, "nome").ok_or("faltou o nome do arquivo")?;
     em_segundo_plano(move || {
-        let destino = Path::new(&pasta).join(arquivos::nome_seguro(&nome));
+        let destino = pasta.join(arquivos::nome_seguro(&nome));
         arquivos::gravar(&destino, &bytes)?;
+        Ok(destino.to_string_lossy().to_string())
+    })
+    .await?
+}
+
+/// Poe na pasta de trabalho um arquivo grande que a pessoa escolheu, sem
+/// passar pela janela.
+///
+/// Um link fisico e instantaneo e nao gasta disco: e o mesmo arquivo com dois
+/// nomes. So existe no mesmo disco; entre discos, copia - ainda assim de
+/// disco para disco, sem os 2 GB atravessarem a memoria da tela.
+///
+/// E o link, e nao o original, que o motor recebe: a saida nasce ao lado da
+/// entrada, e nascer ao lado do original encheria a pasta da pessoa.
+#[tauri::command]
+async fn motor_vincular_entrada(app: AppHandle, pasta: String, caminho: String) -> Result<String, String> {
+    let origem = app.state::<Permitidos>().exigir(&caminho)?;
+    let pasta = pasta_de_trabalho(&pasta)?;
+    em_segundo_plano(move || {
+        let nome = origem
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(arquivos::nome_seguro)
+            .unwrap_or_else(|| "entrada.pdf".into());
+        let destino = arquivos::caminho_livre(&pasta, &nome);
+        if std::fs::hard_link(&origem, &destino).is_err() {
+            std::fs::copy(&origem, &destino).map_err(|e| format!("nao consegui preparar o arquivo: {e}"))?;
+        }
         Ok(destino.to_string_lossy().to_string())
     })
     .await?
@@ -484,6 +581,9 @@ async fn motor_gravar_entrada(pedido: Request<'_>) -> Result<String, String> {
 
 #[tauri::command]
 async fn motor_ler_saida(caminho: String) -> Result<Response, String> {
+    if !dentro_de(Path::new(&caminho), &temporarias_do_motor()) {
+        return Err("so da para ler o que o motor gravou".into());
+    }
     em_segundo_plano(move || {
         std::fs::read(&caminho)
             .map(Response::new)
@@ -492,19 +592,31 @@ async fn motor_ler_saida(caminho: String) -> Result<Response, String> {
     .await?
 }
 
-/// A pasta onde ficam as pastas de trabalho do motor.
-fn temporarias_do_motor() -> PathBuf {
-    std::env::temp_dir().join("pdf-greencodes")
+/// Leva direto para Downloads o que o motor gravou, sem passar pela janela.
+///
+/// E como o resultado de um arquivo de 2 GB chega na pasta da pessoa: a tela
+/// nunca segura os bytes, so recebe onde o arquivo foi parar.
+#[tauri::command]
+async fn motor_entregar(app: AppHandle, caminho: String) -> Result<Value, String> {
+    let origem = PathBuf::from(&caminho);
+    if !dentro_de(&origem, &temporarias_do_motor()) {
+        return Err("so da para entregar o que o motor gravou".into());
+    }
+    em_segundo_plano(move || {
+        let destino = resultados::entregar(&app, &origem)?;
+        let tamanho = destino.metadata().map(|m| m.len()).unwrap_or(0);
+        let mut resposta = guardado(&app, Ok(destino));
+        resposta["tamanho"] = json!(tamanho);
+        Ok(resposta)
+    })
+    .await?
 }
 
 /// So apaga o que e nosso: uma pasta de trabalho, dentro da temporaria do
 /// motor. Conferir so o nome nao bastava - a pasta do proprio projeto,
 /// `Desktop\pdf-greencodes-app`, passava na conferencia.
 fn pode_limpar(pasta: &Path) -> bool {
-    let (Ok(alvo), Ok(nossa)) = (pasta.canonicalize(), temporarias_do_motor().canonicalize()) else {
-        return false;
-    };
-    alvo != nossa && alvo.starts_with(&nossa)
+    dentro_de(pasta, &temporarias_do_motor())
 }
 
 #[tauri::command]
@@ -567,17 +679,41 @@ async fn impressao_enviar(
     opcoes: Option<OpcoesDeImpressao>,
     nome: Option<String>,
 ) -> Result<Value, String> {
-    em_segundo_plano(move || {
-        app.state::<Sessoes>()
-            .enviar(&app, &id, opcoes.unwrap_or_default(), nome)
-    })
-    .await?
+    let opcoes = opcoes.unwrap_or_default();
+    // Imprimir em arquivo e para impressora virtual e para prova sem papel:
+    // so dentro da pasta temporaria, senao a janela escolheria onde o driver
+    // escreve - por cima de qualquer arquivo do disco.
+    if let Some(destino) = opcoes.arquivo.as_deref().filter(|a| !a.trim().is_empty()) {
+        let pai = Path::new(destino).parent().unwrap_or(Path::new(""));
+        if !dentro_de(pai, &std::env::temp_dir()) {
+            return Err("imprimir em arquivo so vale dentro da pasta temporaria".into());
+        }
+    }
+    em_segundo_plano(move || app.state::<Sessoes>().enviar(&app, &id, opcoes, nome)).await?
 }
 
 #[tauri::command(async)]
 fn impressao_descartar(sessoes: State<'_, Sessoes>, id: String) -> Result<Value, String> {
     let _ = sessoes.descartar(&id);
     Ok(json!({ "ok": true }))
+}
+
+/* -------------------------------------------------------------------- uso */
+
+#[tauri::command]
+async fn uso_registrar(app: AppHandle, evento: Value) -> Result<(), String> {
+    let evento: uso::Evento = serde_json::from_value(evento).map_err(|e| format!("evento de uso invalido: {e}"))?;
+    em_segundo_plano(move || app.state::<uso::Registro>().registrar(&app, evento)).await?
+}
+
+#[tauri::command]
+async fn uso_ler(app: AppHandle) -> Result<uso::Uso, String> {
+    em_segundo_plano(move || app.state::<uso::Registro>().ler(&app)).await?
+}
+
+#[tauri::command]
+async fn uso_zerar(app: AppHandle) -> Result<uso::Uso, String> {
+    em_segundo_plano(move || app.state::<uso::Registro>().zerar(&app)).await?
 }
 
 /* ------------------------------------------------------------------ sistema */
@@ -613,7 +749,7 @@ async fn inicio_definir(ligado: bool) -> Result<bool, String> {
 /// visivel, um programa que abre escondido nao teria como ser aberto.
 fn montar_bandeja(app: &AppHandle) -> tauri::Result<()> {
     let abrir = MenuItem::with_id(app, "abrir", "Abrir o PDF.GreenCodes", true, None::<&str>)?;
-    let pasta = MenuItem::with_id(app, "pasta", "Pasta dos resultados", true, None::<&str>)?;
+    let pasta = MenuItem::with_id(app, "pasta", "Abrir a pasta Downloads", true, None::<&str>)?;
     let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&abrir, &pasta, &sair])?;
 
@@ -672,6 +808,31 @@ fn arquivos_dos_argumentos<I: IntoIterator<Item = String>>(argumentos: I) -> Vec
         .collect()
 }
 
+/// Arquivo arrastado para a janela.
+///
+/// O Tauri pega o arrastar antes da pagina - no Windows, a pagina nunca
+/// recebe o arquivo solto, e a area "Solte seu arquivo aqui" nao fazia nada.
+/// O que chega aqui e o caminho, e ele segue o mesmo trilho do dialogo:
+/// inclusive o de arquivo grande, que nao passa pela memoria da tela.
+fn ao_arrastar(app: &AppHandle, evento: &DragDropEvent) {
+    match evento {
+        DragDropEvent::Enter { .. } => {
+            let _ = app.emit("sistema:arrastando", true);
+        }
+        DragDropEvent::Leave => {
+            let _ = app.emit("sistema:arrastando", false);
+        }
+        DragDropEvent::Drop { paths, .. } => {
+            let _ = app.emit("sistema:arrastando", false);
+            let soltos: Vec<Escolhido> = paths.iter().filter_map(|p| entregue(app, p)).collect();
+            if !soltos.is_empty() {
+                let _ = app.emit("sistema:soltar-arquivos", soltos);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -709,6 +870,17 @@ mod testes {
     }
 
     #[test]
+    fn pasta_de_trabalho_so_aceita_a_do_motor() {
+        let trabalho = temporarias_do_motor().join(format!("teste-pasta-{}", std::process::id()));
+        std::fs::create_dir_all(&trabalho).unwrap();
+        assert!(pasta_de_trabalho(&trabalho.to_string_lossy()).is_ok());
+        let inicializar = std::env::var("APPDATA").unwrap_or_default();
+        assert!(pasta_de_trabalho(&inicializar).is_err());
+        assert!(pasta_de_trabalho(r"C:\Windows").is_err());
+        let _ = std::fs::remove_dir_all(&trabalho);
+    }
+
+    #[test]
     fn argumentos_so_trazem_arquivo_que_existe_e_e_aceito() {
         let pasta = std::env::temp_dir().join(format!("greencodes-args-{}", std::process::id()));
         std::fs::create_dir_all(&pasta).unwrap();
@@ -735,10 +907,12 @@ fn main() {
         // vao para a janela que ja esta aberta.
         .plugin(tauri_plugin_single_instance::init(|app, argumentos, _pasta| {
             mostrar_janela(app);
-            let novos = arquivos_dos_argumentos(argumentos);
+            let novos: Vec<Escolhido> = arquivos_dos_argumentos(argumentos)
+                .iter()
+                .filter_map(|c| entregue(app, Path::new(c)))
+                .collect();
             if !novos.is_empty() {
-                let descritos: Vec<Value> = novos.iter().map(|c| descrever(c)).collect();
-                let _ = app.emit("sistema:abrir-arquivos", descritos);
+                let _ = app.emit("sistema:abrir-arquivos", novos);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -746,6 +920,8 @@ fn main() {
         .manage(Motor::default())
         .manage(Sessoes::default())
         .manage(Fila::default())
+        .manage(Permitidos::default())
+        .manage(uso::Registro::default())
         .setup(|app| {
             let alca = app.handle().clone();
 
@@ -767,14 +943,19 @@ fn main() {
             Ok(())
         })
         .on_window_event(|janela, evento| {
-            // Fechar a janela guarda o aplicativo na bandeja, e nao encerra:
-            // o motor Python leva uns 300 ms para subir, e quem fecha entre um
-            // trabalho e outro nao deveria pagar isso de novo.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = evento {
-                if janela.label() == "principal" {
+            if janela.label() != "principal" {
+                return;
+            }
+            match evento {
+                // Fechar a janela guarda o aplicativo na bandeja, e nao encerra:
+                // o motor Python leva uns 300 ms para subir, e quem fecha entre
+                // um trabalho e outro nao deveria pagar isso de novo.
+                WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = janela.hide();
                 }
+                WindowEvent::DragDrop(arraste) => ao_arrastar(janela.app_handle(), arraste),
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -796,7 +977,9 @@ fn main() {
             motor_cancelar,
             motor_pasta_temporaria,
             motor_gravar_entrada,
+            motor_vincular_entrada,
             motor_ler_saida,
+            motor_entregar,
             motor_limpar,
             listar_impressoras,
             preferencias_da_impressora,
@@ -804,6 +987,9 @@ fn main() {
             impressao_pagina,
             impressao_enviar,
             impressao_descartar,
+            uso_registrar,
+            uso_ler,
+            uso_zerar,
             integracao_consultar,
             integracao_definir,
             inicio_consultar,

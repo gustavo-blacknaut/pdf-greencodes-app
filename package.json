@@ -1,6 +1,6 @@
 {
   "name": "pdf-greencodes",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,8 @@
     "app:dev": "tauri dev",
     "app:build": "node scripts/conferir-motor.mjs && tauri build",
     "tauri": "tauri",
-    "deploy": "git pull && npm ci && npm run build && pm2 restart pdf-greencodes",
+    "deploy": "bash scripts/instalar-site.sh",
+    "publicar-app": "node scripts/publicar-app.mjs",
     "tamanho": "node scripts/verificar-tamanho.js",
     "verificar": "npm run tamanho && npm run typecheck && npm run test && npm run rust",
     "rust": "cargo test --manifest-path src-tauri/Cargo.toml",

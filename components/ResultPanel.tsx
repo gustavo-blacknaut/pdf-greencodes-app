@@ -16,8 +16,9 @@ import {
   Timer,
   Trash2,
 } from 'lucide-react';
+import { ConviteDoAplicativo } from './ConviteDoAplicativo';
 import { vault } from '@/lib/ephemeral';
-import { zipFiles, type RunResult } from '@/lib/pdf/engine';
+import { zipFiles, type OperationId, type RunResult } from '@/lib/pdf/engine';
 import { cx, formatBytes, formatDuration } from '@/lib/utils';
 import {
   abrirNoAplicativo,
@@ -33,11 +34,14 @@ export function ResultPanel({
   entryId,
   result,
   elapsedMs,
+  operacao = null,
   onReset,
 }: {
   entryId: string;
   result: RunResult;
   elapsedMs: number;
+  /** A operação que gerou o resultado: o convite do site só promete velocidade onde foi medida. */
+  operacao?: OperationId | null;
   onReset: () => void;
 }) {
   const router = useRouter();
@@ -98,6 +102,13 @@ export function ResultPanel({
       const porNome: Record<string, string> = {};
 
       for (const arquivo of atual.files) {
+        // O arquivo grande já saiu do motor direto para Downloads: gravar de
+        // novo seria ler 2 GB para escrever os mesmos 2 GB ao lado.
+        if (arquivo.caminho) {
+          caminhos.push(arquivo.caminho);
+          porNome[arquivo.name] = arquivo.caminho;
+          continue;
+        }
         const salvo = await salvarNumerado(arquivo.name, arquivo.blob, false);
         if (cancelado) return;
         if (!salvo.ok || !salvo.caminho) {
@@ -187,7 +198,9 @@ export function ResultPanel({
     const arquivo = entry!.files.find((f) => f.name === fileName);
     if (!arquivo) return;
 
-    let caminho = caminhoDe[fileName];
+    // O que ficou no disco tem o caminho desde o começo, e o blob vazio:
+    // gravar o blob ali seria gravar um arquivo de zero bytes.
+    let caminho = caminhoDe[fileName] ?? arquivo.caminho;
     if (!caminho) {
       const salvo = await salvarNumerado(arquivo.name, arquivo.blob, apagarEm1Dia);
       if (!salvo.ok || !salvo.caminho) {
@@ -213,9 +226,11 @@ export function ResultPanel({
 
     const caminhos: string[] = [];
     for (const arquivo of entry!.files) {
-      // O que a gravação automática já pôs no disco não é gravado de novo.
-      if (caminhoDe[arquivo.name]) {
-        caminhos.push(caminhoDe[arquivo.name]);
+      // O que a gravação automática, ou o motor, já pôs no disco não é
+      // gravado de novo.
+      const noDisco = caminhoDe[arquivo.name] ?? arquivo.caminho;
+      if (noDisco) {
+        caminhos.push(noDisco);
         continue;
       }
       const r = await salvarNumerado(arquivo.name, arquivo.blob, apagarEm1Dia);
@@ -327,11 +342,14 @@ export function ResultPanel({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{file.name}</p>
                 <p className="text-xs text-muted">
-                  {formatBytes(file.blob.size)}
+                  {formatBytes(file.tamanho ?? file.blob.size)}
                   {file.pages ? ` · ${file.pages} página${file.pages > 1 ? 's' : ''}` : ''}
                 </p>
               </div>
-              {file.name.toLowerCase().endsWith('.pdf') && (
+              {/* A impressão é do aplicativo: no site ela leva a uma página de
+                  download. O arquivo que ficou no disco também fica de fora: a
+                  prévia teria que carregá-lo inteiro na tela. */}
+              {noApp && !file.caminho && file.name.toLowerCase().endsWith('.pdf') && (
                 <button
                   type="button"
                   onClick={() => irParaImpressao(file.name)}
@@ -465,9 +483,10 @@ export function ResultPanel({
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
           {noApp ? (
             <>
-              {salvos.length ? 'O arquivo já está em ' : 'O arquivo vai para '}
-              <strong className="font-medium text-ink">Downloads/PDF.GreenCodes</strong>
-              {salvos.length ? ', salvo assim que ficou pronto' : ' e fica lá'}, sem prazo. Marque{' '}
+              {salvos.length ? 'O arquivo já está solto na pasta ' : 'O arquivo vai solto para a pasta '}
+              <strong className="font-medium text-ink">Downloads</strong>
+              {salvos.length ? ', salvo assim que ficou pronto' : ' e fica lá'}, sem prazo, com nome de número — o mais
+              novo é sempre o de número maior. Marque{' '}
               <strong className="font-medium text-ink">Apagar sozinho em 1 dia</strong> se for só para imprimir agora —
               vale para os que já foram salvos também.
             </>
@@ -480,6 +499,8 @@ export function ResultPanel({
           )}
         </p>
       </div>
+
+      {!noApp && <ConviteDoAplicativo operacao={operacao} segundos={elapsedMs / 1000} />}
     </div>
   );
 }

@@ -197,7 +197,8 @@ export async function salvarArquivo(nome: string, blob: Blob): Promise<Resultado
 }
 
 /**
- * Grava na pasta dos resultados com o primeiro número livre: 1.pdf, 2.pdf.
+ * Grava solto em Downloads, com nome de ID como os do Discord
+ * (1289473829384756224.pdf): nunca repete, e o mais novo tem o maior número.
  *
  * Sem diálogo e sem sobrescrever nada. Quem processa dez documentos seguidos
  * quer o resultado no disco e pronto.
@@ -265,11 +266,76 @@ export async function escolherArquivos(extensoes?: string[]): Promise<ArquivoEsc
   return (await pedir<ArquivoEscolhido[]>('escolher_arquivos', { extensoes })) ?? [];
 }
 
-/** Lê um arquivo já escolhido e entrega como File. */
+/**
+ * A partir daqui, o PDF fica no disco e não entra na memória da janela.
+ *
+ * Um PDF de 2 GB lido inteiro passaria duas vezes pela janela — na ida e,
+ * no motor, na volta —, e numa máquina de 4 GB de RAM isso não termina.
+ * Acima deste tamanho o arquivo segue só pelo caminho: o motor Python abre
+ * direto do disco e o resultado vai direto para Downloads.
+ */
+export const LIMIAR_EM_DISCO = 256 * 1024 * 1024;
+
+/** Os arquivos que ficaram no disco, e onde estão. */
+const noDisco = new WeakMap<File, { caminho: string; tamanho: number }>();
+
+/** Onde está o arquivo que ficou no disco, ou nada se ele veio inteiro para a memória. */
+export function arquivoNoDisco(arquivo: File): { caminho: string; tamanho: number } | null {
+  return noDisco.get(arquivo) ?? null;
+}
+
+/** O tamanho de verdade: o `File` de um arquivo no disco não carrega os bytes, e diz 0. */
+export function tamanhoDe(arquivo: File): number {
+  return noDisco.get(arquivo)?.tamanho ?? arquivo.size;
+}
+
+/**
+ * Lê um arquivo já escolhido e entrega como File.
+ *
+ * PDF grande vem vazio, marcado com o caminho: quem precisa dele pergunta a
+ * `arquivoNoDisco`. Imagem e Office grandes ainda vêm inteiros — só o motor
+ * de PDF sabe trabalhar direto do disco.
+ */
 export async function lerArquivoEscolhido(escolhido: ArquivoEscolhido): Promise<File> {
   if (!estaNoAplicativo()) throw new Error('Fora do aplicativo.');
-  const bytes = comoBytes(await invoke<unknown>('ler_arquivo', { caminho: escolhido.caminho }));
-  return new File([bytes], escolhido.nome);
+  if (escolhido.tamanho > LIMIAR_EM_DISCO && escolhido.nome.toLowerCase().endsWith('.pdf')) {
+    const vazio = new File([], escolhido.nome, { type: 'application/pdf' });
+    noDisco.set(vazio, { caminho: escolhido.caminho, tamanho: escolhido.tamanho });
+    return vazio;
+  }
+  return new File([await lerCaminho(escolhido.caminho)], escolhido.nome);
+}
+
+/**
+ * O mesmo arquivo, com os bytes: para quem não sabe trabalhar pelo caminho,
+ * como a prévia da impressão, que desenha a página na tela.
+ */
+export async function materializar(arquivo: File): Promise<File> {
+  const emDisco = noDisco.get(arquivo);
+  if (!emDisco) return arquivo;
+  return new File([await lerCaminho(emDisco.caminho)], arquivo.name, { type: arquivo.type });
+}
+
+/** Os bytes de um arquivo entregue pela pessoa, lidos agora. */
+export async function lerCaminho(caminho: string): Promise<ArrayBuffer> {
+  if (!estaNoAplicativo()) throw new Error('Fora do aplicativo.');
+  return comoBytes(await invoke<unknown>('ler_arquivo', { caminho }));
+}
+
+/**
+ * Arquivos soltos na janela.
+ *
+ * O Tauri pega o arrastar antes da página: a página nunca recebe o arquivo, e
+ * sem isto a área "Solte seu arquivo aqui" não fazia nada no aplicativo. Vem
+ * o caminho, como no diálogo. Devolve a função de cancelar a inscrição.
+ */
+export function aoSoltarArquivos(callback: (lista: ArquivoEscolhido[]) => void): () => void {
+  return ouvir('sistema:soltar-arquivos', callback);
+}
+
+/** Um arquivo está sendo arrastado por cima da janela (true) ou saiu dela (false). */
+export function aoArrastar(callback: (arrastando: boolean) => void): () => void {
+  return ouvir('sistema:arrastando', callback);
 }
 
 /** Progresso da leitura. Devolve a função de cancelar a inscrição. */
@@ -332,6 +398,14 @@ const MOTOR = {
     const bytes = comoBytes(await invoke<unknown>('motor_ler_saida', { caminho }));
     return { nome: caminho.split(/[\\/]/).pop() ?? 'arquivo', bytes };
   },
+
+  /** Põe na pasta de trabalho um arquivo que ficou no disco, sem passar pela janela. */
+  vincularEntrada: (pasta: string, caminho: string) =>
+    invoke<string>('motor_vincular_entrada', { pasta, caminho }),
+
+  /** Leva a saída do motor direto para Downloads. Devolve onde ela foi parar. */
+  entregar: (caminho: string) =>
+    invoke<{ ok: boolean; caminho?: string; tamanho?: number; erro?: string }>('motor_entregar', { caminho }),
 
   limpar: async (pasta: string) => {
     await invoke<boolean>('motor_limpar', { pasta });
@@ -534,6 +608,43 @@ export function aoReceberArquivosDoSistema(callback: (arquivos: File[]) => void)
     vivo = false;
     desligar();
   };
+}
+
+/* ------------------------------------------------------------------- uso */
+
+/**
+ * O que a pessoa já fez no programa, só em números.
+ *
+ * Nenhum nome de arquivo, nenhum conteúdo: o lado Rust recusa qualquer
+ * identificador que não seja slug de ferramenta. Fica no computador.
+ */
+export type Uso = {
+  desde: number;
+  ferramentas: Record<string, number>;
+  arquivosProcessados: number;
+  paginasProcessadas: number;
+  bytesProcessados: number;
+  impressoes: number;
+  folhasImpressas: number;
+  arquivosSalvos: number;
+};
+
+export type EventoDeUso =
+  | { tipo: 'ferramenta'; slug: string; arquivos: number; paginas: number; bytes: number }
+  | { tipo: 'impressao'; folhas: number; copias: number };
+
+/** Conta um uso. Falhar aqui nunca atrapalha o trabalho que acabou de dar certo. */
+export function registrarUso(evento: EventoDeUso): void {
+  if (!estaNoAplicativo()) return;
+  void invoke('uso_registrar', { evento }).catch(() => {});
+}
+
+export async function lerUso(): Promise<Uso | null> {
+  return pedir<Uso>('uso_ler');
+}
+
+export async function zerarUso(): Promise<Uso | null> {
+  return pedir<Uso>('uso_zerar');
 }
 
 export const integracaoDoSistema = {

@@ -38,10 +38,15 @@ import { inspectFile, runOperation } from '@/lib/pdf/engine';
 import { loadPdfJs, loadPdfLib } from '@/lib/pdf/lazy';
 import { validarFila } from '@/lib/pdf/guards';
 import {
+  aoSoltarArquivos,
   estaNoAplicativo,
   abrirPreferenciasDaImpressora,
   imprimirArquivo,
+  lerArquivoEscolhido,
   listarImpressoras,
+  materializar,
+  registrarUso,
+  tamanhoDe,
   type Impressora,
   type OpcoesImpressao,
 } from '@/lib/desktop';
@@ -222,6 +227,45 @@ export function PrintWorkspace() {
       }),
     ]);
   }, []);
+
+  /**
+   * O que chega do seletor ou arrastado para a janela.
+   *
+   * A prévia desenha a página, então precisa dos bytes: o PDF grande que o
+   * seletor deixou no disco é lido aqui. A fila é lida por ref porque quem
+   * chama pode ser a inscrição no arrastar, montada uma vez só.
+   */
+  const filaRef = useRef(fila);
+  filaRef.current = fila;
+  const receberArquivos = useCallback(
+    async (arquivos: File[]) => {
+      try {
+        validarFila(
+          arquivos.map((a) => ({ name: a.name, size: tamanhoDe(a) })),
+          filaRef.current.map((i) => ({ size: i.origem.size })),
+        );
+        adicionar(await Promise.all(arquivos.map(materializar)));
+      } catch (e) {
+        setErroGeral(e instanceof Error ? e.message : 'Arquivos recusados.');
+      }
+    },
+    [adicionar],
+  );
+
+  // Soltar na janela do aplicativo: vem o caminho, como no seletor.
+  useEffect(
+    () =>
+      aoSoltarArquivos((lista) => {
+        void (async () => {
+          try {
+            receberArquivos(await Promise.all(lista.map(lerArquivoEscolhido)));
+          } catch (e) {
+            setErroGeral(e instanceof Error ? e.message : 'Não foi possível ler o arquivo.');
+          }
+        })();
+      }),
+    [receberArquivos],
+  );
 
   /** Arquivos vindos de outra ferramenta, guardados no cofre. */
   useEffect(() => {
@@ -615,6 +659,8 @@ export function PrintWorkspace() {
         atividade.fechar(tarefa, 'erro', falhou);
       } else {
         enviados += 1;
+        // Só a quantidade: folhas e cópias, nunca o nome do arquivo.
+        registrarUso({ tipo: 'impressao', folhas: saida.paginas, copias: opcoes.copias ?? 1 });
         setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'impresso' } : i)));
         atividade.fechar(tarefa, 'concluida', `${partes.length} trabalho(s) na impressora`);
       }
@@ -668,15 +714,7 @@ export function PrintWorkspace() {
             accept={ACEITA}
             acceptLabel="PDF, JPG, PNG, WebP, DOCX, XLSX, PPTX ou TXT"
             multiple
-            onFiles={(arquivos) => {
-              try {
-                validarFila(arquivos, []);
-              } catch (e) {
-                setErroGeral(e instanceof Error ? e.message : 'Arquivos recusados.');
-                return;
-              }
-              adicionar(arquivos);
-            }}
+            onFiles={(arquivos) => void receberArquivos(arquivos)}
           />
         </div>
       ) : (
@@ -710,15 +748,7 @@ export function PrintWorkspace() {
               aceita={ACEITA}
               onSelecionar={setSelecionado}
               onRemover={remover}
-              onAdicionar={(arquivos) => {
-                try {
-                  validarFila(arquivos, fila.map((i) => ({ size: i.origem.size })));
-                } catch (e) {
-                  setErroGeral(e instanceof Error ? e.message : 'Arquivos recusados.');
-                  return;
-                }
-                adicionar(arquivos);
-              }}
+              onAdicionar={(arquivos) => void receberArquivos(arquivos)}
             />
 
           </div>
