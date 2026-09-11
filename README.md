@@ -169,7 +169,8 @@ O app não é o site numa janela. Ele faz o que só um programa instalado conseg
 - **Vive na bandeja** e inicia com o Windows em modo oculto, sem pular na cara ao ligar o computador.
 
 ```bash
-npm run app:build    # gera o instalador em dist-app/
+npm run app:dev      # abre o aplicativo a partir do código
+npm run app:build    # gera o instalador em src-tauri/target/release/bundle/nsis/
 ```
 
 As duas integrações (menu do botão direito e início automático) são opcionais e ficam no menu da
@@ -178,23 +179,37 @@ programa padrão do `.pdf` e somem junto com o perfil do usuário.
 
 ### Como o app é montado por dentro
 
-A interface é servida por um **servidor HTTP local**, e não por `file://`, porque o pdf.js carrega o
-worker com `new URL(...)` e o protocolo de arquivo bloqueia isso. O servidor só entrega o que está
-dentro de `out/`, com trava de diretório testada contra travessia codificada em percentual.
+O aplicativo é **Tauri 2**: a casca é Rust (`src-tauri/`) e a tela é o WebView2 que já vem no
+Windows. Não leva um Chromium inteiro junto como o Electron levava — o executável tem 11 MB, e o
+instalador, com o Python do motor dentro, 37 MB.
 
-A janela roda com `contextIsolation` e `sandbox` ligados: a página não tem Node nem acesso ao disco.
-Tudo que ela consegue fazer passa por uma lista fechada de canais em `electron/preload.js`, cada um
-validado do outro lado. Não existe `invoke` genérico de propósito — assim uma falha na interface não
-vira acesso ao sistema de arquivos.
+A janela não tem acesso ao disco nem ao sistema. Ela só consegue duas coisas: chamar os 30 comandos
+de `src-tauri/src/main.rs` e ouvir os avisos que eles mandam. Os plugins de `fs` e `shell` ficaram
+de fora de propósito — dariam à página o disco e o terminal inteiros se um PDF malicioso
+conseguisse rodar script. Cada comando valida o que recebe do lado do Rust: nome de arquivo nunca
+vira caminho, e limpar pasta temporária só apaga o que está dentro da temporária do motor.
+
+Três cuidados que custaram defeito real para aprender:
+
+- **Todo comando demorado é `async`.** No Tauri, comando sem `async` roda na linha que desenha a
+  janela: um desenho de 141 páginas deixava o programa *Não respondendo*, sem barra de progresso.
+- **Os bytes viajam crus**, pelo canal `ipc.localhost`. Se a política de segurança da página
+  bloquear esse endereço, o Tauri cai calado num canal reserva que passa tudo por JSON, e o PDF
+  chegava como a lista de números `37,80,68...`. Por isso o `layout.tsx` libera o canal no build do
+  aplicativo, e a ponte (`lib/desktop.ts`) reconstrói os bytes se algum dia chegarem pelo reserva.
+- **O stderr do Python é sempre esvaziado.** Cano cheio trava o motor no meio da escrita, e o
+  MuPDF avisa bastante em PDF mal formado. Se o motor morre, quem esperava resposta recebe o
+  motivo — a última linha do erro dele — e o próximo pedido sobe um motor novo.
 
 ### Três linguagens, e por que cada uma
 
-O aplicativo usa JavaScript, Python e C#. Não por gosto: cada parte foi para onde a alternativa
-media pior.
+O aplicativo usa TypeScript, Rust, Python e C#. Não por gosto: cada parte foi para onde a
+alternativa media pior.
 
 | Parte | Linguagem | Por quê |
 |---|---|---|
 | Interface | TypeScript / React | É a mesma tela do site. Escrever duas vezes seria manter duas. |
+| Casca do aplicativo | Rust (Tauri 2) | Janela, disco, diálogos e processos, sem carregar um Chromium de 150 MB. |
 | Motor de PDF | Python (PyMuPDF) | Velocidade medida, não suposta. |
 | Impressão | C# (.NET Framework) | É o único caminho até o driver da impressora. |
 
@@ -412,11 +427,13 @@ PDF original não são preservados. Para digitalizado, rode o OCR antes.
 
 Next.js 16 (App Router, Turbopack, saída estática) · React 19 · TypeScript · Tailwind CSS 4 ·
 [@cantoo/pdf-lib](https://www.npmjs.com/package/@cantoo/pdf-lib) · pdf.js · [tesseract.js](https://github.com/naptha/tesseract.js) ·
-JSZip · Vitest · Electron 33.
+JSZip · Vitest.
 
-No aplicativo, mais dois: **Python 3.12 embutido com [PyMuPDF](https://pymupdf.readthedocs.io/)**
-(o motor de PDF) e **C# / .NET Framework** (a impressão). Nenhum dos dois precisa estar instalado
-na máquina — o Python vai junto no instalador e o C# é compilado pelo `csc.exe` do próprio Windows.
+No aplicativo, mais três: **Rust com [Tauri 2](https://tauri.app/)** (a casca),
+**Python 3.12 embutido com [PyMuPDF](https://pymupdf.readthedocs.io/)** (o motor de PDF) e
+**C# / .NET Framework** (a impressão). Nenhum precisa estar instalado na máquina da loja — o Rust
+vira o próprio executável, o Python vai junto no instalador e o C# é compilado pelo `csc.exe` do
+próprio Windows. Para compilar o aplicativo, sim, precisa do Rust (`rustup`).
 
 ## Deploy
 

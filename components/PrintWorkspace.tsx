@@ -20,14 +20,21 @@ import {
 } from 'lucide-react';
 import { Dropzone } from './Dropzone';
 import { FilaDeArquivos } from './impressao/FilaDeArquivos';
+import {
+  ACEITA,
+  CHAVE_DAS_OPCOES,
+  OPCOES_PADRAO,
+  conversaoPara,
+  lerOpcoesSalvas,
+  proximoId,
+} from './impressao/fila';
 import { OpcoesDeImpressao } from './impressao/OpcoesDeImpressao';
 import { PreviaDaPagina, type FolhaNaTela } from './impressao/PreviaDaPagina';
+import type { EstadoDoItem, ItemFila } from './impressao/tipos';
 import { folhaEmMm, marcasDeCorte, marcasDeRegistro, passaDaFolha, posicionar, sobra } from '@/lib/impressao/layout';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
-import { IMAGE_ACCEPT } from '@/lib/ferramentas/tipos';
-import { inspectFile, runOperation, type OperationId } from '@/lib/pdf/engine';
-import { pareceSerImagem } from '@/lib/pdf/guards';
+import { inspectFile, runOperation } from '@/lib/pdf/engine';
 import { loadPdfJs, loadPdfLib } from '@/lib/pdf/lazy';
 import { validarFila } from '@/lib/pdf/guards';
 import {
@@ -39,66 +46,6 @@ import {
   type OpcoesImpressao,
 } from '@/lib/desktop';
 import { cx, formatBytes, replaceExtension } from '@/lib/utils';
-
-const CHAVE = 'greencodes:impressao';
-
-const PADRAO: OpcoesImpressao = {
-  copias: 1,
-  colorido: true,
-  paisagem: false,
-  duplex: 'simplex',
-  papel: 'A4',
-  dpi: 300,
-};
-
-const ACEITA = [
-  'application/pdf',
-  '.pdf',
-  // A mesma lista do resto do programa: sem isso, o imprimir recusava um
-  // WEBP que a ferramenta de converter abre sem reclamar.
-  ...IMAGE_ACCEPT,
-  '.docx',
-  '.xlsx',
-  '.pptx',
-  '.txt',
-];
-
-/** Qual operação transforma cada formato em PDF. PDF já chega pronto. */
-function conversaoPara(nome: string): OperationId | null {
-  const n = nome.toLowerCase();
-  if (n.endsWith('.pdf')) return null;
-  if (pareceSerImagem(n)) return 'images-to-pdf';
-  if (n.endsWith('.docx')) return 'word-to-pdf';
-  if (n.endsWith('.xlsx')) return 'excel-to-pdf';
-  if (n.endsWith('.pptx')) return 'powerpoint-to-pdf';
-  if (n.endsWith('.txt')) return 'text-to-pdf';
-  return null;
-}
-
-function lerSalvo(): OpcoesImpressao {
-  try {
-    const bruto = localStorage.getItem(CHAVE);
-    return bruto ? { ...PADRAO, ...JSON.parse(bruto) } : PADRAO;
-  } catch {
-    return PADRAO;
-  }
-}
-
-type Estado = 'esperando' | 'convertendo' | 'pronto' | 'erro' | 'impresso';
-
-type ItemFila = {
-  id: string;
-  nome: string;
-  origem: File | Blob;
-  nomeOriginal: string;
-  blob: Blob | null;
-  paginas: number;
-  estado: Estado;
-  erro?: string;
-};
-
-let contador = 0;
-const proximoId = () => `i${(contador += 1)}_${Date.now().toString(36)}`;
 
 export function PrintWorkspace() {
   const parametros = useSearchParams();
@@ -140,7 +87,7 @@ export function PrintWorkspace() {
   const [erroGeral, setErroGeral] = useState<string | null>(null);
   const [noApp, setNoApp] = useState(false);
   const [impressoras, setImpressoras] = useState<Impressora[] | null>(null);
-  const [opcoes, setOpcoes] = useState<OpcoesImpressao>(PADRAO);
+  const [opcoes, setOpcoes] = useState<OpcoesImpressao>(OPCOES_PADRAO);
 
   /**
    * A folha e a arte em cima dela, em pixels de tela.
@@ -247,7 +194,7 @@ export function PrintWorkspace() {
 
   useEffect(() => {
     setNoApp(estaNoAplicativo());
-    setOpcoes(lerSalvo());
+    setOpcoes(lerOpcoesSalvas());
     void listarImpressoras().then((lista) => {
       setImpressoras(lista);
       setOpcoes((atual) => {
@@ -270,7 +217,7 @@ export function PrintWorkspace() {
           nomeOriginal,
           blob: null,
           paginas: 0,
-          estado: 'esperando' as Estado,
+          estado: 'esperando' as EstadoDoItem,
         };
       }),
     ]);
@@ -617,7 +564,7 @@ export function PrintWorkspace() {
     setAviso(null);
     setErroGeral(null);
     try {
-      localStorage.setItem(CHAVE, JSON.stringify(opcoes));
+      localStorage.setItem(CHAVE_DAS_OPCOES, JSON.stringify(opcoes));
     } catch {
       /* modo anônimo: imprime do mesmo jeito */
     }

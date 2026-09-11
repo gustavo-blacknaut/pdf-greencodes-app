@@ -49,7 +49,13 @@ export function ResultPanel({
   const [zipping, setZipping] = useState(false);
   // No aplicativo o resultado vai para o disco, então não há download nem
   // contagem regressiva: o arquivo é seu e fica onde você mandar.
-  const [noApp, setNoApp] = useState(false);
+  //
+  // Sabido já no primeiro desenho, e não num efeito depois dele: começando
+  // em `false`, a máquina fraca da loja chegava a mostrar por um instante a
+  // tela do site — "apaga em Infinity:NaN" e um botão Baixar. Este painel só
+  // existe depois de uma ferramenta rodar, nunca na página pré-montada, então
+  // não há hidratação para desencontrar.
+  const [noApp] = useState(estaNoAplicativo);
   const [salvoEm, setSalvoEm] = useState<string | null>(null);
   // Auto-exclusão: desligada por padrão, porque o arquivo é da pessoa. Quem
   // só queria imprimir e não quer a pasta entupindo liga aqui, e o que já
@@ -68,8 +74,6 @@ export function ResultPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => vault.subscribe(() => force((n) => n + 1)), []);
-
-  useEffect(() => setNoApp(estaNoAplicativo()), []);
 
   /**
    * No aplicativo, o arquivo vai para o disco assim que fica pronto.
@@ -299,12 +303,12 @@ export function ResultPanel({
             <HardDrive className="h-3.5 w-3.5" />
             {gravando ? 'salvando...' : salvos.length ? 'já salvo em Downloads' : 'salve onde quiser'}
           </span>
-        ) : (
+        ) : Number.isFinite(remaining) ? (
           <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs tabular-nums text-muted">
             <Timer className="h-3.5 w-3.5" />
             apaga em {formatDuration(remaining)}
           </span>
-        )}
+        ) : null}
       </div>
 
       {shrank && (

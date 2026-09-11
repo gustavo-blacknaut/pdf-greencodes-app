@@ -392,7 +392,7 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
       files,
       inputBytes: ctx.files.reduce((total, arquivo) => total + arquivo.size, 0),
       outputBytes,
-      notes: Array.isArray(dados.notas) ? (dados.notas as string[]) : [],
+      notes: notasDoMotor(dados.notas),
       highlightSavings: id === 'compress',
     };
   } finally {
@@ -402,15 +402,31 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
   }
 }
 
+/**
+ * Quantas páginas, só quando o motor mandou um número.
+ *
+ * Nem toda operação usa `paginas` para isso: a cobertura de tinta manda ali a
+ * medição de cada página, e a tela escrevia "[object Object],[object Object]"
+ * no lugar da contagem.
+ */
+function contagemDePaginas(valor: unknown): number | undefined {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : undefined;
+}
+
+/** As notas que são texto. Qualquer outra coisa não tem como aparecer na tela. */
+export function notasDoMotor(valor: unknown): string[] {
+  return Array.isArray(valor) ? valor.filter((nota): nota is string => typeof nota === 'string') : [];
+}
+
 /** O motor devolve `arquivo` (um) ou `arquivos` (vários); os dois viram Blob. */
 async function lerSaidas(
   motor: NonNullable<ReturnType<typeof motorPython>>,
   dados: Record<string, unknown>,
 ): Promise<OutputFile[]> {
   const lista = Array.isArray(dados.arquivos)
-    ? (dados.arquivos as { arquivo: string; paginas?: number }[])
+    ? (dados.arquivos as { arquivo: string; paginas?: unknown }[])
     : typeof dados.arquivo === 'string'
-      ? [{ arquivo: dados.arquivo, paginas: dados.paginas as number | undefined }]
+      ? [{ arquivo: dados.arquivo, paginas: dados.paginas }]
       : [];
 
   if (lista.length === 0) throw new Error('O motor terminou sem gerar arquivo nenhum.');
@@ -418,7 +434,7 @@ async function lerSaidas(
   const saidas: OutputFile[] = [];
   for (const item of lista) {
     const lido = await motor.lerSaida(item.arquivo);
-    saidas.push({ name: lido.nome, blob: new Blob([lido.bytes]), pages: item.paginas });
+    saidas.push({ name: lido.nome, blob: new Blob([lido.bytes]), pages: contagemDePaginas(item.paginas) });
   }
   return saidas;
 }

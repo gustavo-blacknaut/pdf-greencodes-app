@@ -576,9 +576,9 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
       ) : items.length === 0 && !tool.semArquivo ? (
         <Dropzone
           accept={tool.accept}
-                  onEscolhidos={mostrarEscolhidos}
-                  onLendo={marcarLeitura}
-                  onFalha={descartarMarcadores}
+          onEscolhidos={mostrarEscolhidos}
+          onLendo={marcarLeitura}
+          onFalha={descartarMarcadores}
           acceptLabel={tool.acceptLabel}
           multiple={tool.multiple}
           onFiles={addFiles}
