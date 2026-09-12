@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { TOOLS } from '../lib/tools';
+import JSZip from 'jszip';
+
+import { TOOLS, defaultOptions } from '../lib/tools';
 import { OPERATIONS, runOperation, type OperationId, type LoadedFile } from '../lib/pdf/engine';
 import { loadPdfLib } from '../lib/pdf/lazy';
 
@@ -71,9 +73,6 @@ function arquivo(nome: string, bytes: ArrayBuffer, extras: Partial<LoadedFile> =
 const OPCOES: Partial<Record<string, Record<string, string | number | boolean>>> = {
   'comprimir-pdf': { level: 'impressao' },
   'dividir-pdf': { mode: 'extract', extractRanges: '1-2' },
-  'extrair-paginas': { pages: '2,4' },
-  'remover-paginas': { pages: '1' },
-  'girar-pdf': { angle: 90 },
   'marca-dagua': { text: 'EXEMPLO', opacity: 0.2 },
   'numerar-paginas': { position: 'bottom-right' },
   'proteger-pdf': { password: '1234' },
@@ -88,7 +87,7 @@ const OPCOES: Partial<Record<string, Record<string, string | number | boolean>>>
   'gerar-codigo-barras': { conteudo: '7891234567895', simbologia: 'ean13', saida: 'pdf' },
   'texto-para-pdf': { formato: 'abnt', titulo: 'Trabalho de exemplo' },
   'criar-carimbo': { formato: 'retangulo', linhas: 'GRAFICA EXEMPLO\nCNPJ 00.000.000/0001-00', larguraMm: 38, alturaMm: 14 },
-  'gerar-qrcode': { conteudo: 'https://exemplo.com.br', saida: 'pdf' },
+  'gerar-qrcode': { tipo: 'link', url: 'https://exemplo.com.br', saida: 'pdf' },
   'cartao-de-visita': { medida: '90x50' },
   etiquetas: { larguraMm: 50, alturaMm: 30 },
   'marcas-de-corte': { sangriaMm: 3 },
@@ -97,7 +96,67 @@ const OPCOES: Partial<Record<string, Record<string, string | number | boolean>>>
   'dividir-ao-meio': { onde: 'vertical' },
   'cartaz-em-partes': { colunas: 2, linhas: 2 },
   'frente-e-verso': { inverter: false },
+  // A grade de páginas publica um plano; sem ele a ferramenta não tem o que
+  // remontar e reclama com razão.
+  'organizar-paginas': { plan: JSON.stringify([{ i: 1, r: 0 }, { i: 0, r: 0 }, { i: 2, r: 0 }, { i: 3, r: 0 }]) },
+  'remover-paginas': { plan: JSON.stringify([{ i: 0, r: 0 }, { i: 2, r: 0 }, { i: 3, r: 0 }]) },
+  'extrair-paginas': { plan: JSON.stringify([{ i: 1, r: 0 }, { i: 3, r: 0 }]) },
+  'girar-pdf': { plan: JSON.stringify([0, 1, 2, 3].map((i) => ({ i, r: 90 }))) },
+  // As do editor: um texto posto na primeira página.
+  'assinar-pdf': {
+    elementos: JSON.stringify([
+      { id: 'a1', tipo: 'texto', pagina: 1, x: 60, y: 600, largura: 220, altura: 40, texto: 'Assinado - exemplo', tamanho: 16 },
+    ]),
+  },
+  'editar-pdf': {
+    elementos: JSON.stringify([
+      { id: 'e1', tipo: 'texto', pagina: 1, x: 60, y: 520, largura: 260, altura: 40, texto: 'Texto inserido', tamanho: 14 },
+    ]),
+  },
 };
+
+/**
+ * Documentos mínimos de Word, Excel e PowerPoint: um zip com o XML que o
+ * leitor procura. Assim as conversões são provadas sem usar arquivo de alguém.
+ */
+async function arquivosDeOffice(): Promise<Record<'docx' | 'xlsx' | 'pptx', ArrayBuffer>> {
+  const docx = new JSZip();
+  docx.file(
+    'word/document.xml',
+    '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Documento de exemplo</w:t></w:r></w:p>' +
+      '<w:p><w:r><w:t>Segunda linha, para a conversao ter o que escrever.</w:t></w:r></w:p>' +
+      '</w:body></w:document>',
+  );
+
+  const xlsx = new JSZip();
+  xlsx.file(
+    'xl/workbook.xml',
+    '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="Tabela" sheetId="1" r:id="rId1"/></sheets></workbook>',
+  );
+  xlsx.file(
+    'xl/sharedStrings.xml',
+    '<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2"><si><t>Produto</t></si><si><t>Preco</t></si></sst>',
+  );
+  xlsx.file(
+    'xl/worksheets/sheet1.xml',
+    '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
+      '<row r="2"><c r="A2" t="inlineStr"><is><t>Cartao de visita</t></is></c><c r="B2"><v>90</v></c></row>' +
+      '</sheetData></worksheet>',
+  );
+
+  const pptx = new JSZip();
+  pptx.file(
+    'ppt/slides/slide1.xml',
+    '<?xml version="1.0" encoding="UTF-8"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>' +
+      '<p:sp><p:txBody><a:p><a:r><a:t>Slide de exemplo</a:t></a:r></a:p></p:txBody></p:sp>' +
+      '</p:spTree></p:cSld></p:sld>',
+  );
+
+  const zipar = async (zip: JSZip) => (await zip.generateAsync({ type: 'arraybuffer' })) as ArrayBuffer;
+  return { docx: await zipar(docx), xlsx: await zipar(xlsx), pptx: await zipar(pptx) };
+}
 
 describe('prova de todas as ferramentas', () => {
   it(
@@ -120,6 +179,7 @@ describe('prova de todas as ferramentas', () => {
         ? (readFileSync(caminhoDaFoto).buffer as ArrayBuffer)
         : null;
 
+      const office = await arquivosDeOffice();
       const resultados: Resultado[] = [];
 
       for (const tool of TOOLS) {
@@ -131,15 +191,29 @@ describe('prova de todas as ferramentas', () => {
 
         const querImagem = tool.accept.some((tipo) => tipo.startsWith('image/'));
         const querTexto = tool.accept.includes('.txt');
+        const aceita = (final: string) => tool.accept.some((tipo) => tipo.endsWith(final));
         const entrada = tool.semArquivo
           ? []
-          : querTexto
-            ? [arquivo('exemplo.txt', txt)]
-            : querImagem && !tool.accept.includes('.pdf')
-              ? foto
-                ? [arquivo('foto-exemplo.jpg', foto)]
-                : []
-              : [arquivo('documento-exemplo.pdf', pdf), ...(tool.multiple ? [arquivo('documento-exemplo-2.pdf', pdf)] : [])];
+          : aceita('.docx')
+            ? [arquivo('exemplo.docx', office.docx)]
+            : aceita('.xlsx')
+              ? [arquivo('exemplo.xlsx', office.xlsx)]
+              : aceita('.pptx')
+                ? [arquivo('exemplo.pptx', office.pptx)]
+                : querTexto
+                  ? [arquivo('exemplo.txt', txt)]
+                  : tool.operation === 'stamp-image' && foto
+                    ? [arquivo('documento-exemplo.pdf', pdf), arquivo('logo-exemplo.jpg', foto)]
+                    : tool.slug === 'cartao-de-visita' && foto
+                      ? [arquivo('foto-exemplo.jpg', foto)]
+                    : querImagem && !tool.accept.includes('.pdf')
+                      ? foto
+                        ? [
+                            arquivo('foto-exemplo.jpg', foto),
+                            ...(tool.multiple ? [arquivo('foto-exemplo-2.jpg', foto)] : []),
+                          ]
+                        : []
+                      : [arquivo('documento-exemplo.pdf', pdf), ...(tool.multiple ? [arquivo('documento-exemplo-2.pdf', pdf)] : [])];
 
         if (!tool.semArquivo && entrada.length === 0) {
           resultados.push({ slug: tool.slug, nome: tool.name, operacao, ok: false, motivo: 'sem arquivo de exemplo para este formato' });
@@ -150,7 +224,8 @@ describe('prova de todas as ferramentas', () => {
         try {
           const resultado = await runOperation(operacao, {
             files: entrada,
-            options: OPCOES[tool.slug] ?? {},
+            // Os padrões da ferramenta primeiro, como a tela manda.
+            options: { ...defaultOptions(tool), ...(OPCOES[tool.slug] ?? {}) },
             onProgress: () => {},
           });
           const nomes: string[] = [];

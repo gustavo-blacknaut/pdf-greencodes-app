@@ -1,8 +1,8 @@
 # PDF.GreenCodes
 
-74 ferramentas de PDF e de gráfica que rodam inteiras na sua máquina. Sem upload, sem servidor,
+75 ferramentas de PDF e de gráfica que rodam inteiras na sua máquina. Sem upload, sem servidor,
 sem conta. As 20 do dia a dia estão no site, [pdf.greencodes.com.br](https://pdf.greencodes.com.br);
-todas as 74 estão no aplicativo para Windows, que é grátis:
+todas as 75 estão no aplicativo para Windows, que é grátis:
 [baixar](https://github.com/gustavo-blacknaut/pdf-greencodes-app/releases/latest/download/PDF.GreenCodes-Setup.exe).
 
 O aplicativo foi feito para gráfica: converte RGB para CMYK sem rasterizar, imprime em 600 e
@@ -23,13 +23,13 @@ O mesmo código gera os dois. O que muda é quanto cada um entrega:
 
 | | Site | Aplicativo para Windows |
 |---|---|---|
-| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as 74 |
+| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as 75 |
 | Tamanho | até **200 MB** por vez, sem limite de páginas | até **2 GB** por arquivo, direto do disco |
 | Motor de PDF | o do navegador (pdf.js, pdf-lib) | PyMuPDF, até 16 vezes mais rápido |
 | Resultado | você baixa | aparece sozinho em Downloads |
 | Impressão | — | escala, posição, espelho, marcas, papel do driver |
 
-As outras 54 ferramentas **aparecem no site** com o selo *App*: cada uma tem página, descrição e o
+As outras 55 ferramentas **aparecem no site** com o selo *App*: cada uma tem página, descrição e o
 botão de baixar, em vez de sumir. Arquivo acima de 200 MB é recusado com o mesmo botão junto, e o
 resultado de cada ferramenta mostra quanto mais rápido o aplicativo faria — só onde isso foi medido.
 
@@ -93,6 +93,19 @@ E a categoria **Gráfica**, que é o serviço entre a arte pronta e a máquina:
 | **Folha de fotos** | 3x4, passaporte, 5x7, polaroid, adesivo, revelação |
 | **Separar chapas** | cada cor sozinha, como vai para a chapa |
 | **Cobertura de tinta** | antes de o papel encharcar |
+| **Cartaz em partes** | um A4 virando quatro, para colar depois |
+| **Adicionar sangria** | estica a arte para além do corte |
+| **Marcas de dobra** | onde a dobradeira vai pegar |
+| **Juntar frente e verso** | duas digitalizações num documento só |
+| **Carimbar logo no PDF** | a mesma imagem em todas as folhas |
+| **Criar carimbo** | redondo ou retangular, com o texto no arco, e vira PDF |
+
+E a categoria **Códigos**:
+
+| | |
+|---|---|
+| **Gerar QR Code** | link, wi-fi, contato, PIX |
+| **Gerar código de barras** | EAN-13, Code 128 e os outros, na folha ou solto |
 
 E a categoria **Imagem**, que roda inteira no navegador — inclusive no site:
 
@@ -104,8 +117,15 @@ E a categoria **Imagem**, que roda inteira no navegador — inclusive no site:
 | **HEIC para JPG** | a foto que o iPhone grava desde 2017 e quase nada abre |
 | **Ampliar e melhorar** | reamostragem Lanczos, e não o esticador do Paint |
 | **Cortar imagem** | sem a recompressão que o Paint cobra |
+| **Ajustar imagem** | brilho, contraste, saturação, temperatura, nitidez |
+| **Girar e espelhar** | em lote, sem abrir uma por uma |
+| **Remover fundo** | recorte do fundo de cor sólida |
+| **Limpar digitalização** | tira o cinza do papel e endireita o preto |
+| **Moldura na imagem** | borda e passe-partout na medida |
+| **Marca d'água na imagem** | texto ou logo por cima, em lote |
+| **Juntar imagens** | várias numa só, lado a lado ou empilhadas |
 
-Essas seis ficam no JavaScript por medição, não por gosto: o motor Python grava só
+Essas treze ficam no JavaScript por medição, não por gosto: o motor Python grava só
 `png, pnm, pgm, ppm, pbm, pam, psd, ps, jpg, jpeg` — **não grava webp**. O Chromium grava,
 decodifica webp e avif, e não custa um byte de instalador. É o inverso do que acontece com PDF.
 O decodificador de HEIC são 2,9 MB e só é baixado quando alguém manda um HEIC.
@@ -326,8 +346,8 @@ contrato de 200 KB continua com 200 KB, e não vira 40 MB de imagem.
 npm run dev          # desenvolvimento
 npm run build        # gera out/
 npm run preview      # serve out/ para conferir o build
-npm run verificar    # tamanho dos arquivos + typecheck + os 329 testes
-npm run motor        # os 254 testes do motor Python
+npm run verificar    # tamanho dos arquivos + typecheck + os 693 testes
+npm run motor        # os 298 testes do motor Python
 npm run impressora   # compila o executavel de impressao em C#
 ```
 
@@ -341,6 +361,35 @@ cor no fluxo de conteúdo — é assim que se sabe que o K100 continuou K100.
 
 `npm run verificar` também recusa arquivo com mais de 800 linhas. É arbitrário de propósito: passar
 disso quase sempre quer dizer que dois assuntos foram parar no mesmo lugar.
+
+### Provando as 75 ferramentas, uma por uma
+
+Teste diz "passou"; prova entrega o arquivo para alguém abrir e olhar. São quatro provadores, e um
+comando puxa três deles:
+
+```bash
+npm run provar-tudo     # motor + TypeScript + impressão, e monta o relatório
+```
+
+- **`scripts/provar-motor.py`** — as 38 ações do motor pelo processo de verdade, como o aplicativo
+  faz: escreve no stdin, lê o stdout, grava o que sair.
+- **`scripts/provar-ferramentas.test.ts`** — cada ferramenta do catálogo no TypeScript, fora da
+  tela. O que precisa de canvas não roda aqui e fica marcado.
+- **`scripts/provar-impressao.mjs`** — imprime pela fila do Windows na "Microsoft Print to PDF" e
+  **mede** a folha e a arte que saíram, nos cinco papéis.
+- **`/app/provar`** — a tela de conferência, a única parte que precisa de gente: abre no navegador
+  (ou no aplicativo), roda as 75 ferramentas onde elas rodam de verdade e baixa um zip com tudo o
+  que saiu. Descompactado em `provas/navegador-real`, entra no relatório.
+
+O relatório (`scripts/provar-relatorio.py`) desenha a miniatura de cada saída, monta a folha de
+contato — `contato.png` para bater o olho, `contato.pdf` em folhas de vinte — e escreve a tabela de
+cobertura em `LEIAME.md`, ferramenta por ferramenta, dizendo onde cada uma foi provada.
+
+Hoje são **74 das 75**. A que falta é a `heic-para-jpg`: ela existe para a foto que sai do iPhone, e
+não dá para inventar um HEIC por código — precisa de um arquivo de verdade, que não entra aqui.
+
+Tudo o que entra nas provas é inventado nos scripts: páginas com texto de exemplo, uma foto
+desenhada por código, um CNPJ fictício. A pasta `provas/` não vai para o git.
 
 ---
 

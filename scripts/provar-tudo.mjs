@@ -41,6 +41,9 @@ correr(PYTHON, [path.join('scripts', 'provar-motor.py'), path.join(destino, 'mot
 correr(process.execPath, [path.join('node_modules', 'vitest', 'vitest.mjs'), 'run', 'scripts/provar-ferramentas.test.ts'], {
   env: { ...process.env, PROVAS: path.join(destino, 'navegador') },
 });
+// A impressão passa pelo spooler de verdade, pela "Microsoft Print to PDF":
+// é o único jeito de medir a folha que sai sem gastar papel.
+correr(process.execPath, [path.join('scripts', 'provar-impressao.mjs'), path.join(destino, 'impressao')]);
 correr(PYTHON, [path.join('scripts', 'provar-relatorio.py'), destino]);
 
 console.log(`\nPronto. Abra ${path.join(destino, 'contato.png')} para ver tudo de uma vez,`);

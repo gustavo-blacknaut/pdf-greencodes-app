@@ -21,14 +21,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const IMPRESSORA_EXE = path.join(RAIZ, 'impressora', 'impressora.exe');
-const PASTA = path.join(RAIZ, '.prova-impressao');
+// A pasta pode vir por argumento, para o `provar-tudo` juntar tudo num lugar só.
+const PASTA = path.resolve(process.argv[2] ?? path.join(RAIZ, '.prova-impressao'));
 const PT_POR_MM = 72 / 25.4;
 const DPI = 300;
 
@@ -266,6 +267,7 @@ function principal() {
   ];
 
   let falhou = false;
+  const linhas = [];
 
   for (const caso of casos) {
     const medida = PAPEIS[caso.papel];
@@ -300,6 +302,20 @@ function principal() {
     const ok = folhaBate && tintaBate;
     if (!ok) falhou = true;
 
+    // A mesma linha que sai na tela, para o relatório juntar com as outras.
+    linhas.push({
+      acao: `imprimir ${apelido}`,
+      ok,
+      // A folha de teste é preta de propósito: é o que deixa medir a tinta.
+      mostra:
+        `folha ${saiu.largura.toFixed(0)}x${saiu.altura.toFixed(0)} mm, ` +
+        `preta em ${(cobertura * 100).toFixed(1)}% dela`,
+      arquivos: [`${apelido}.pdf`],
+      bytes: statSync(path.join(PASTA, `${apelido}.pdf`)).size,
+      paginas: 1,
+      motivo: ok ? undefined : 'a folha ou a arte saiu fora da medida',
+    });
+
     console.log(
       `  ${apelido.padEnd(12)} folha ${saiu.largura.toFixed(0)}x${saiu.altura.toFixed(0)} mm ` +
         `(pedido ${folha.largura}x${folha.altura})   ` +
@@ -316,6 +332,7 @@ function principal() {
     }
   }
 
+  writeFileSync(path.join(PASTA, 'resultado.json'), JSON.stringify(linhas, null, 2));
   console.log(
     falhou
       ? '\nREPROVOU — a impressão não está entregando a folha inteira.'
