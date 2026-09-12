@@ -277,6 +277,8 @@ export async function desenharPaginaDeImagem(
   pagina: TamanhoPagina,
   margem: number,
   ajuste: Ajuste,
+  /** Resolução do desenho. 150 serve para ler na tela; cartão e etiqueta pedem 300. */
+  dpi = 150,
 ): Promise<void> {
   const page = out.addPage([pagina.largura, pagina.altura]);
   const caixa = {
@@ -288,7 +290,7 @@ export async function desenharPaginaDeImagem(
   if (!c2d) throw new Error('Canvas 2D indisponível neste navegador.');
 
   // Renderiza na resolução da caixa, com teto para não estourar a memória.
-  const escala = Math.min(150 / 72, MAX_RASTER_EDGE / Math.max(caixa.largura, caixa.altura));
+  const escala = Math.min(dpi / 72, MAX_RASTER_EDGE / Math.max(caixa.largura, caixa.altura));
   canvas.width = Math.max(1, Math.round(caixa.largura * escala));
   canvas.height = Math.max(1, Math.round(caixa.altura * escala));
 
@@ -321,7 +323,9 @@ export async function desenharPaginaDeImagem(
     c2d.drawImage(bitmap, (canvas.width - largura) / 2, (canvas.height - altura) / 2, largura, altura);
   }
 
-  const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+  // Quanto mais fino o desenho, menos o JPEG pode apertar: um cartão a 300
+  // DPI com marca de compressão aparece na mão de quem recebe.
+  const jpeg = await canvasToBlob(canvas, 'image/jpeg', dpi >= 300 ? 0.95 : 0.92);
   const embutida = await out.embedJpg(await jpeg.arrayBuffer());
   page.drawImage(embutida, { x: margem, y: margem, width: caixa.largura, height: caixa.altura });
 }

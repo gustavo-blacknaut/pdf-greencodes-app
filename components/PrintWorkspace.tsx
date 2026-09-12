@@ -30,10 +30,13 @@ import {
   lerOpcoesSalvas,
   proximoId,
 } from './impressao/fila';
+import { AjustesDaImagem } from './impressao/AjustesDaImagem';
 import { folhaNaTela as calcularFolhaNaTela } from './impressao/folhaNaTela';
 import { OpcoesDeImpressao } from './impressao/OpcoesDeImpressao';
 import { PreviaDaPagina, type FolhaNaTela } from './impressao/PreviaDaPagina';
 import type { EstadoDoItem, ItemFila } from './impressao/tipos';
+import { usePrevia } from './impressao/usePrevia';
+import { AJUSTES_NEUTROS, ajustesDe, type Ajustes } from '@/lib/impressao/ajustes';
 import { avisoDaFolha } from '@/lib/impressao/folha';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
@@ -62,19 +65,10 @@ export function PrintWorkspace() {
 
   const [fila, setFila] = useState<ItemFila[]>([]);
   const [selecionado, setSelecionado] = useState<string | null>(null);
-  const [pagina, setPagina] = useState(1);
-  const [renderizando, setRenderizando] = useState(false);
-  const [docPronto, setDocPronto] = useState(0);
   // 0 = ajustar à largura disponível; acima disso é zoom fixo (1 = 100%).
   const [zoom, setZoom] = useState(0);
   const [larguraDisponivel, setLarguraDisponivel] = useState(0);
   const [alturaDisponivel, setAlturaDisponivel] = useState(0);
-  // Escala que a última renderização usou. O zoom parte dela: sem isso, o
-  // primeiro clique em "+" saltava de "ajustado a 188%" para 125%, encolhendo.
-  const [escalaAtual, setEscalaAtual] = useState(1);
-  // A medida da pagina atual em milimetros, que so se sabe depois de abrir.
-  const [arteMm, setArteMm] = useState<{ largura: number; altura: number } | null>(null);
-
 
   // 1 = uma página por folha, sem montagem. Acima disso o documento é
   // remontado antes da prévia, para o que aparece ser o que sai impresso.
@@ -104,11 +98,51 @@ export function PrintWorkspace() {
    * escolhida, que só o driver sabe. A prévia e a impressão usam o mesmo.
    */
   const bordaDaImpressora = impressoras?.find((i) => i.nome === opcoes.impressora)?.margens;
+  const item = fila.find((i) => i.id === selecionado) ?? null;
+  /*
+   * Os ajustes são de cada arquivo — cada foto precisa dos seus. O "preto e
+   * branco" da fila entra junto: na prévia e no papel ele é o mesmo cinza.
+   */
+  const ajustes = useMemo<Ajustes>(
+    () => ajustesDe({ ...item?.ajustes, cinza: item?.ajustes?.cinza || opcoes.colorido === false }),
+    [item?.ajustes, opcoes.colorido],
+  );
   const opcoesDaFolha = useMemo<OpcoesImpressao>(
     () => ({ ...opcoes, bordaMm: bordaDaImpressora }),
     [opcoes, bordaDaImpressora],
   );
-  const montagem = useMemo(() => montagemDe(opcoesDaFolha), [opcoesDaFolha]);
+  const montagem = useMemo(() => ({ ...montagemDe(opcoesDaFolha), ajustes }), [opcoesDaFolha, ajustes]);
+
+  const [imprimindo, setImprimindo] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const telaRef = useRef<HTMLCanvasElement>(null);
+  const molduraRef = useRef<HTMLDivElement>(null);
+  const convertendoRef = useRef(false);
+  /*
+   * O desenho da folha, visto de dentro do efeito que renderiza.
+   *
+   * O efeito não pode depender de `folhaNaTela`: ela muda a cada ajuste, e o
+   * documento seria redesenhado a cada clique numa seta de milímetro. A ref
+   * dá o valor de agora sem entrar na lista de dependências.
+   */
+  const desenhaFolhaRef = useRef(false);
+
+  /** O que vale para prévia e impressão: o montado, quando há montagem. */
+  // Pelas partes, e não pelo objeto: a fila inteira é reconstruída a cada
+  // mudança de estado, e um item novo com o mesmo conteúdo reabria o
+  // documento no meio do desenho — a prévia ficava em branco.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const saida = useMemo(() => paraSaida(item), [item?.id, item?.blob, montado, porFolha, intervalo]);
+
+  const { pagina, setPagina, renderizando, escalaAtual, arteMm } = usePrevia({
+    saida,
+    zoom,
+    larguraDisponivel,
+    ajustes,
+    telaRef,
+    desenhaFolhaRef,
+  });
 
   /**
    * A folha e a arte em cima dela, em pixels de tela — com a orientação que a
@@ -122,31 +156,10 @@ export function PrintWorkspace() {
         : null,
     [arteMm, larguraDisponivel, alturaDisponivel, zoom, montagem],
   );
-
-  /*
-   * O desenho da folha, visto de dentro do efeito que renderiza.
-   *
-   * O efeito não pode depender de `folhaNaTela`: ela muda a cada ajuste, e o
-   * documento seria redesenhado a cada clique numa seta de milímetro. A ref
-   * dá o valor de agora sem entrar na lista de dependências.
-   */
-  const desenhaFolhaRef = useRef(false);
-  useEffect(() => {
-    desenhaFolhaRef.current = Boolean(folhaNaTela);
-  }, [folhaNaTela]);
+  desenhaFolhaRef.current = Boolean(folhaNaTela);
 
   /** O aviso de que parte da arte não vai sair impressa. */
   const avisoDeSobra = useMemo(() => (arteMm ? avisoDaFolha(arteMm, montagem) : null), [arteMm, montagem]);
-  const [imprimindo, setImprimindo] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-
-  const telaRef = useRef<HTMLCanvasElement>(null);
-  const molduraRef = useRef<HTMLDivElement>(null);
-  const docRef = useRef<{ numPages: number; getPage: (n: number) => Promise<any>; destroy: () => Promise<void> } | null>(
-    null,
-  );
-  const tarefaRef = useRef<{ cancel: () => void } | null>(null);
-  const convertendoRef = useRef(false);
 
   useEffect(() => {
     setNoApp(estaNoAplicativo());
@@ -311,8 +324,6 @@ export function PrintWorkspace() {
     setSelecionado(primeiro?.id ?? null);
   }, [fila, selecionado]);
 
-  const item = fila.find((i) => i.id === selecionado) ?? null;
-
   /** O que vale para prévia e impressão: o montado, quando há montagem. */
   function paraSaida(alvo: ItemFila | null): { blob: Blob; paginas: number } | null {
     if (!alvo?.blob) return null;
@@ -330,108 +341,6 @@ export function PrintWorkspace() {
     // mostraria uma coisa e a impressora sairia com outra.
     return porFolha > 1 || intervalo.trim() ? null : { blob: alvo.blob, paginas: alvo.paginas };
   }
-
-  /** Abre o documento escolhido uma vez e guarda a referência. */
-  useEffect(() => {
-    const saida = paraSaida(item);
-    if (!saida) {
-      void docRef.current?.destroy();
-      docRef.current = null;
-      return;
-    }
-
-    let vivo = true;
-    void (async () => {
-      const pdfjs = await loadPdfJs();
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(await saida.blob.arrayBuffer()) }).promise;
-      if (!vivo) {
-        await doc.destroy();
-        return;
-      }
-      docRef.current = doc;
-      setPagina(1);
-      setDocPronto((n) => n + 1);
-    })();
-
-    return () => {
-      vivo = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, item?.blob, montado, porFolha]);
-
-  /**
-   * Desenha a página escolhida.
-   *
-   * A nitidez vem de renderizar na densidade real da tela: antes o canvas
-   * saía em 1x e o texto ficava borrado em qualquer monitor moderno. O fator
-   * é limitado a 2, e a área total a 6 megapixels, para a conta não explodir
-   * em máquina fraca nem em zoom alto.
-   */
-  useEffect(() => {
-    const doc = docRef.current;
-    if (!doc || !larguraDisponivel) return;
-    let vivo = true;
-
-    void (async () => {
-      setRenderizando(true);
-      try {
-        const p = await doc.getPage(Math.min(pagina, doc.numPages));
-        const natural = p.getViewport({ scale: 1 });
-        // Escala 1 do pdf.js e ponto tipografico: 72 por polegada.
-        setArteMm({ largura: (natural.width / 72) * 25.4, altura: (natural.height / 72) * 25.4 });
-
-        // Quanto a página ocupa na tela, em pixels de CSS.
-        const ajuste = larguraDisponivel / natural.width;
-        const escalaCss = zoom > 0 ? zoom : Math.min(ajuste, 2);
-        setEscalaAtual(escalaCss);
-
-        const densidade = Math.min(window.devicePixelRatio || 1, 2);
-        let escala = escalaCss * densidade;
-
-        // Teto de área: 6 MP é o suficiente para leitura e não trava a aba.
-        const megapixels = (natural.width * escala * natural.height * escala) / 1_000_000;
-        if (megapixels > 6) escala *= Math.sqrt(6 / megapixels);
-
-        const viewport = p.getViewport({ scale: escala });
-        const tela = telaRef.current;
-        if (!tela || !vivo) return;
-
-        tela.width = Math.floor(viewport.width);
-        tela.height = Math.floor(viewport.height);
-        /*
-         * O canvas é grande por dentro e do tamanho certo por fora: é isso
-         * que dá texto nítido em vez de ampliado.
-         *
-         * Quando a prévia desenha a folha, quem manda no tamanho de fora é o
-         * layout — o canvas é esticado para dentro da caixa da arte, na
-         * posição e na escala que vão para o papel. Mexer aqui também faria
-         * os dois brigarem, e a arte piscaria de tamanho a cada desenho.
-         */
-        if (!desenhaFolhaRef.current) {
-          tela.style.width = `${Math.round(natural.width * escalaCss)}px`;
-          tela.style.height = `${Math.round(natural.height * escalaCss)}px`;
-        }
-
-        const contexto = tela.getContext('2d');
-        if (contexto) {
-          // Clicar rápido em "próxima" empilha desenhos: o anterior é cortado.
-          tarefaRef.current?.cancel();
-          const tarefa = p.render({ canvasContext: contexto, viewport });
-          tarefaRef.current = tarefa;
-          await tarefa.promise;
-        }
-        p.cleanup();
-      } catch {
-        /* cancelamento de desenho não é erro para mostrar */
-      } finally {
-        if (vivo) setRenderizando(false);
-      }
-    })();
-
-    return () => {
-      vivo = false;
-    };
-  }, [pagina, docPronto, zoom, larguraDisponivel]);
 
   /**
    * Prepara o que vai sair: primeiro escolhe as páginas, depois monta as
@@ -508,6 +417,19 @@ export function PrintWorkspace() {
     setFila((atual) => atual.filter((i) => i.id !== id));
   }
 
+  /** Os ajustes são de cada arquivo: mexer num não mexe no outro. */
+  function mudarAjustes(id: string, novos: Ajustes) {
+    setFila((atual) => atual.map((i) => (i.id === id ? { ...i, ajustes: novos } : i)));
+  }
+
+  /** Mesma foto tirada no mesmo lugar: o que serviu para uma serve para as outras. */
+  function aplicarAjustesEmTodos(id: string) {
+    setFila((atual) => {
+      const modelo = atual.find((i) => i.id === id)?.ajustes ?? AJUSTES_NEUTROS;
+      return atual.map((i) => (i.blob ? { ...i, ajustes: { ...modelo } } : i));
+    });
+  }
+
   /**
    * Fatia um PDF em blocos de N páginas, na ordem.
    *
@@ -582,7 +504,8 @@ export function PrintWorkspace() {
 
       for (let n = 0; n < partes.length; n += 1) {
         const nome = partes.length > 1 ? alvo.nome.replace(/.pdf$/i, `-parte${n + 1}.pdf`) : alvo.nome;
-        const r = await imprimirArquivo(nome, partes[n], opcoesDaFolha, (feitas, total) =>
+        const paraEste = { ...opcoesDaFolha, ajustes: ajustesDe(alvo.ajustes) };
+        const r = await imprimirArquivo(nome, partes[n], paraEste, (feitas, total) =>
           atividade.registrar(
             tarefa,
             `Desenhando página ${feitas} de ${total}` + (partes.length > 1 ? ` (lote ${n + 1}/${partes.length})` : ''),
@@ -629,7 +552,6 @@ export function PrintWorkspace() {
     setFila([]);
     setSelecionado(null);
     setMontado(null);
-    setArteMm(null);
     setIntervalo('');
     setAviso(null);
     setErroGeral(null);
@@ -694,9 +616,8 @@ export function PrintWorkspace() {
       ) : (
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
-            {(() => {
-              const saida = paraSaida(item);
-              return item?.blob && saida ? (
+            {item?.blob && saida ? (
+              <>
                 <PreviaDaPagina
                   nome={item.nomeOriginal}
                   paginas={saida.paginas}
@@ -711,8 +632,16 @@ export function PrintWorkspace() {
                   onZoom={setZoom}
                   onPagina={setPagina}
                 />
-              ) : null;
-            })()}
+                <AjustesDaImagem
+                  nome={item.nomeOriginal}
+                  ajustes={ajustesDe(item.ajustes)}
+                  cinzaDaFila={opcoes.colorido === false}
+                  outros={fila.filter((i) => i.id !== item.id && i.blob).length}
+                  onMudar={(novos) => mudarAjustes(item.id, novos)}
+                  onTodos={() => aplicarAjustesEmTodos(item.id)}
+                />
+              </>
+            ) : null}
             <FilaDeArquivos
               fila={fila}
               selecionado={selecionado}

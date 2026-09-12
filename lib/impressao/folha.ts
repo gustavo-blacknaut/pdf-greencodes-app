@@ -19,6 +19,14 @@
  */
 
 import {
+  aplicarNosPixels,
+  ajustesDe,
+  medidaGirada,
+  raioDaNitidez,
+  temAjuste,
+  type Ajustes,
+} from './ajustes';
+import {
   bordaNaFolha,
   folhaEmMm,
   marcasDeCorte,
@@ -60,6 +68,8 @@ export type Montagem = {
   marcasRegistro?: boolean;
   /** A beirada que a impressora escolhida não alcança. Vem do driver. */
   borda?: BordaDaImpressora;
+  /** Brilho, contraste, cor, nitidez e giro desta arte. */
+  ajustes?: Ajustes;
 };
 
 /** O que a arte mede de verdade, em milímetros. */
@@ -138,7 +148,10 @@ export function folhaDeitada(montagem: Pick<Montagem, 'orientacao' | 'paisagem'>
  * borda do documento. Nos outros modos a medida é de quem pediu — tamanho
  * original é tamanho original —, e a prévia só mostra a beirada tracejada.
  */
-export function montarFolha(arte: Arte, montagem: Montagem) {
+export function montarFolha(arteOriginal: Arte, montagem: Montagem) {
+  // A arte girada é a que conta para tudo daqui para baixo: uma foto em pé
+  // girada 90 graus é uma arte deitada, e é ela que decide a folha.
+  const arte = medidaGirada(arteOriginal, montagem.ajustes?.girar ?? 0);
   const deitada = folhaDeitada(montagem, arte);
   const folha = folhaEmMm(montagem.papel, deitada);
   const borda = bordaNaFolha(montagem.borda, deitada);
@@ -258,16 +271,81 @@ function desenharArte(
     pincel.translate(-centroX, -centroY);
   }
 
-  // Negativo só na arte, e não na folha: o papel em volta continua branco
-  // porque é papel, e não parte do fotolito. Preto e branco vira cinza aqui
-  // mesmo: o driver que ignora o "sem cor" não tem cor para imprimir.
-  const filtros = [montagem.colorido === false ? 'grayscale(1)' : '', montagem.negativo ? 'invert(1)' : '']
-    .filter(Boolean)
-    .join(' ');
-  if (filtros) pincel.filter = filtros;
-
-  pincel.drawImage(origem, x, y, largura, altura);
+  // O giro é em torno do centro da arte, como o espelho. A imagem entra
+  // deitada na caixa já girada: por isso as medidas trocam no 90 e no 270.
+  const girar = montagem.ajustes?.girar ?? 0;
+  if (girar) {
+    pincel.translate(x + largura / 2, y + altura / 2);
+    pincel.rotate((girar * Math.PI) / 180);
+    const [l, a] = girar === 90 || girar === 270 ? [altura, largura] : [largura, altura];
+    pincel.translate(-l / 2, -a / 2);
+    // Negativo só na arte, e não na folha: o papel em volta continua branco
+    // porque é papel, e não parte do fotolito.
+    if (montagem.negativo) pincel.filter = 'invert(1)';
+    pincel.drawImage(origem, 0, 0, l, a);
+  } else {
+    if (montagem.negativo) pincel.filter = 'invert(1)';
+    pincel.drawImage(origem, x, y, largura, altura);
+  }
   pincel.restore();
+
+  // Cor, luz e nitidez saem sobre os pixels já desenhados, com a mesma conta
+  // da prévia. O "preto e branco" da fila entra aqui como tons de cinza: o
+  // driver que ignora o "sem cor" não tem mais cor para imprimir.
+  const ajustes = ajustesDe({
+    ...montagem.ajustes,
+    cinza: montagem.ajustes?.cinza || montagem.colorido === false,
+  });
+  if (temAjuste(ajustes)) {
+    ajustarArea(pincel, plano.arte, plano.pontosPorMm, ajustes);
+  }
+}
+
+/**
+ * Os mesmos ajustes num canvas inteiro: é o que a prévia usa, onde o canvas
+ * é só a arte. `pixelsPorMm` é a resolução daquele desenho, e é ela que dá à
+ * nitidez o mesmo tamanho de raio que ela terá no papel.
+ */
+export function ajustarCanvas(tela: HTMLCanvasElement, ajustes: Ajustes, pixelsPorMm: number): void {
+  if (!temAjuste(ajustes) || !tela.width || !tela.height) return;
+  const pincel = tela.getContext('2d', { willReadFrequently: true });
+  if (!pincel) return;
+  ajustarArea(pincel, { x: 0, y: 0, largura: tela.width, altura: tela.height }, pixelsPorMm, ajustes);
+}
+
+/**
+ * Aplica os ajustes só onde a arte caiu, em faixas.
+ *
+ * Em faixas porque uma A4 a 600 DPI são 35 milhões de pixels: pedir a imagem
+ * inteira de uma vez, mais o borrão da nitidez, passaria de meio gigabyte e
+ * derrubaria a janela justamente na máquina fraca. Cada faixa leva uma sobra
+ * em cima e embaixo, do tamanho do raio, para a nitidez não marcar a emenda.
+ */
+function ajustarArea(
+  pincel: CanvasRenderingContext2D,
+  area: { x: number; y: number; largura: number; altura: number },
+  pixelsPorMm: number,
+  ajustes: Ajustes,
+): void {
+  const tela = pincel.canvas;
+  const x = Math.max(0, Math.floor(area.x));
+  const y = Math.max(0, Math.floor(area.y));
+  const largura = Math.min(tela.width - x, Math.ceil(area.largura + (area.x - x)));
+  const altura = Math.min(tela.height - y, Math.ceil(area.altura + (area.y - y)));
+  if (largura <= 0 || altura <= 0) return;
+
+  const sobra = ajustes.nitidez > 0 ? raioDaNitidez(pixelsPorMm) + 1 : 0;
+  const porFaixa = Math.max(1, Math.floor(4_000_000 / largura));
+
+  for (let inicio = 0; inicio < altura; inicio += porFaixa) {
+    const de = Math.max(0, inicio - sobra);
+    const ate = Math.min(altura, inicio + porFaixa + sobra);
+    const faixa = pincel.getImageData(x, y + de, largura, ate - de);
+    aplicarNosPixels(faixa.data, largura, ate - de, ajustes, pixelsPorMm);
+    // Devolve só o miolo: as sobras existiram para o borrão, e as delas
+    // mesmas saíram sem vizinho de um dos lados.
+    pincel.putImageData(faixa, x, y + de, 0, inicio - de, largura, Math.min(porFaixa, altura - inicio));
+  }
 }
 
 function desenharMarcas(

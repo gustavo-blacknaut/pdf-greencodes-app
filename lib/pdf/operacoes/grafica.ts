@@ -11,9 +11,10 @@
  * (1/72 de polegada) acontece só na hora de desenhar.
  */
 
-import { FORMATOS_MM, mmParaPt, openWithPdfLib, salvarPdf, sanitizeText } from '../nucleo';
-import type { RunContext, RunResult } from '../tipos';
-import { suffixName, yieldToBrowser } from '../../utils';
+import { FORMATOS_MM, desenharPaginaDeImagem, mmParaPt, openWithPdfLib, salvarPdf, sanitizeText } from '../nucleo';
+import { pareceSerImagem } from '../guards';
+import type { Ajuste, RunContext, RunResult } from '../tipos';
+import { replaceExtension, suffixName, yieldToBrowser } from '../../utils';
 import { hexParaRgb } from '../layout';
 import { loadPdfLib } from '../lazy';
 
@@ -247,6 +248,46 @@ export function calcularGrade(
 }
 
 /**
+ * A arte do item, quando o que entrou foi uma imagem.
+ *
+ * Quem manda a arte do cartão em JPEG não tem PDF nenhum: a arte é a foto, e
+ * ela precisa entrar na medida exata do item. "Proporção" deixa a foto
+ * inteira e branco em volta; "esticar" deforma até encher; "preencher" amplia
+ * e corta o que passar. A 300 DPI, porque cartão sai da guilhotina para a mão
+ * de alguém — a 150 a trama aparece.
+ */
+async function arteDaImagem(
+  imagem: RunContext['files'][number],
+  itemL: number,
+  itemA: number,
+  opcoes: RunContext['options'],
+): Promise<ArrayBuffer> {
+  const { PDFDocument } = await loadPdfLib();
+  const out = await PDFDocument.create();
+  const bitmap = await createImageBitmap(
+    new Blob([imagem.bytes.slice(0)], { type: imagem.type || 'image/jpeg' }),
+  );
+  const canvas = document.createElement('canvas');
+  try {
+    await desenharPaginaDeImagem(
+      out,
+      canvas,
+      bitmap,
+      { largura: itemL, altura: itemA, seguirImagem: false },
+      0,
+      (String(opcoes.ajusteDaImagem ?? 'proporcao') as Ajuste),
+      300,
+    );
+  } finally {
+    bitmap.close();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+  const bytes = await out.save({ useObjectStreams: true });
+  return bytes.slice().buffer as ArrayBuffer;
+}
+
+/**
  * Repete a arte numa grade, com as marcas de corte nas bordas da folha.
  *
  * Serve cartão de visita, etiqueta e adesivo: muda o tamanho do item e o
@@ -260,7 +301,10 @@ async function imporGrade(
 ): Promise<RunResult> {
   const { PDFDocument, rgb } = await loadPdfLib();
   const source = ctx.files[0];
-  const doc = await semGiro(await openWithPdfLib(source.bytes, source.senha));
+  const arte = pareceSerImagem(source.name, source.type)
+    ? await arteDaImagem(source, config.itemL, config.itemA, ctx.options)
+    : source.bytes;
+  const doc = await semGiro(await openWithPdfLib(arte, source.senha));
 
   const folha = folhaEmPontos(ctx.options);
   const margem = mmParaPt(limitar(ctx.options.margemMm, 0, 50, 5));
@@ -378,7 +422,11 @@ async function imporGrade(
   }
 
   return {
-    files: [{ name: suffixName(source.name, config.sufixo), blob, pages: out.getPageCount() }],
+    // A folha montada é sempre PDF: entrando um JPEG, o nome tem de mudar de
+    // extensão junto, senão o arquivo sai chamado .jpg e ninguém abre.
+    files: [
+      { name: replaceExtension(suffixName(source.name, config.sufixo), 'pdf'), blob, pages: out.getPageCount() },
+    ],
     inputBytes: source.size,
     outputBytes: blob.size,
     notes: notas,

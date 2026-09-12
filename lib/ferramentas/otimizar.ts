@@ -137,7 +137,7 @@ export const OTIMIZAR: Tool[] = [
     name: 'PDF em tons de cinza',
     tagline: 'Tire a cor antes de imprimir',
     description:
-      'Converte todas as páginas para cinza, garantindo que nada saia colorido na impressora. As páginas viram imagem no processo, então o texto deixa de ser selecionável.',
+      'Converte todas as páginas para cinza, garantindo que nada saia colorido na impressora. Com o contraste automático, a foto não sai chapada: o mais escuro vira preto e o mais claro vira branco. As páginas viram imagem no processo, então o texto deixa de ser selecionável.',
     icon: 'Contrast',
     accent: '133 158 143',
     category: 'Otimizar',
@@ -151,6 +151,21 @@ export const OTIMIZAR: Tool[] = [
     multiple: false,
     cta: 'Converter para cinza',
     fields: [
+      {
+        key: 'contraste',
+        type: 'select',
+        label: 'Contraste',
+        default: 'auto',
+        options: [
+          {
+            value: 'auto',
+            label: 'Automático',
+            hint: 'preto de verdade e branco de verdade, sem perder o meio-tom',
+          },
+          { value: 'nenhum', label: 'Nenhum', hint: 'só tira a cor, e mantém os tons como estão' },
+        ],
+        help: 'Foto colorida convertida direto sai chapada: era a cor que carregava o contraste. O automático estica as pontas de cada página, como o "níveis automáticos" de um editor de foto.',
+      },
       {
         key: 'dpi',
         type: 'select',
@@ -195,7 +210,7 @@ export const OTIMIZAR: Tool[] = [
     name: 'PDF em tons de preto',
     tagline: 'O cinza vira preto de verdade',
     description:
-      'Texto digitalizado sai cinza e imprime falhado. Aqui o cinza vira preto puro e o fundo vira branco, sem meio-tom, então o texto sai cheio. Para foto, use tons de cinza: neste modo ela vira mancha.',
+      'Texto digitalizado sai cinza e imprime falhado. Aqui o escuro vira preto cheio e o fundo vira branco de papel. O padrão mantém o meio-tom, então a foto da página continua foto; o limiar joga o meio-tom fora, para digitalização de texto que precisa sair sólida.',
     icon: 'Contrast',
     accent: '36 57 44',
     category: 'Otimizar',
@@ -209,6 +224,25 @@ export const OTIMIZAR: Tool[] = [
     multiple: false,
     cta: 'Escurecer',
     fields: [
+      {
+        key: 'modo',
+        type: 'select',
+        label: 'Como escurecer',
+        default: 'curva',
+        options: [
+          {
+            value: 'curva',
+            label: 'Preto cheio, mantendo o meio-tom',
+            hint: 'serve para qualquer documento, inclusive com foto',
+          },
+          {
+            value: 'limiar',
+            label: 'Só preto e branco, sem meio-tom',
+            hint: 'digitalização de texto · foto vira mancha',
+          },
+        ],
+        help: 'O limiar era o modo antigo: ele engrossa a borda da letra e transforma foto em mancha preta. A curva escurece o que é escuro e deixa o resto respirar.',
+      },
       {
         key: 'tinta',
         type: 'select',

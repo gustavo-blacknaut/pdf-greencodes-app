@@ -65,6 +65,8 @@ export function folhaNaTela(
     espelho:
       montagem.espelho === 'horizontal' ? 'scaleX(-1)' : montagem.espelho === 'vertical' ? 'scaleY(-1)' : undefined,
     negativo: Boolean(montagem.negativo),
-    cinza: montagem.colorido === false,
+    // O cinza e o resto dos ajustes já estão pintados nos pixels do canvas,
+    // com a mesma conta da folha: repetir em CSS aplicaria duas vezes.
+    giro: montagem.ajustes?.girar ?? 0,
   };
 }

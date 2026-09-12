@@ -54,6 +54,22 @@ class TestCmykDoCinza:
         assert claro_no_corte_120.samples[3] == 0  # acima do corte 120: papel
         assert escuro_no_corte_200.samples[3] == 255  # abaixo do corte 200: tinta
 
+    def test_com_meio_tom_a_tinta_acompanha_o_cinza(self):
+        """Na curva, o cinza do meio recebe meia tinta, e nao tinta cheia.
+
+        E o que faz a foto continuar foto quando a chapa e gerada: o RIP
+        resolve a reticula a partir dessa porcentagem.
+        """
+        meio = self._cinza(160)
+        chapa = cmyk_do_cinza(meio, corte=180, cmyk=(0, 0, 0, 100), duro=False)
+        k = chapa.samples[3]
+        assert 0 < k < 255, f"o meio-tom sumiu: k={k}"
+
+        escuro = cmyk_do_cinza(self._cinza(50), corte=180, cmyk=(0, 0, 0, 100), duro=False)
+        claro = cmyk_do_cinza(self._cinza(230), corte=180, cmyk=(0, 0, 0, 100), duro=False)
+        assert escuro.samples[3] == 255, "o escuro continua levando tinta cheia"
+        assert claro.samples[3] == 0, "o claro continua sendo papel"
+
     def test_resultado_e_devicecmyk(self):
         px = cmyk_do_cinza(self._cinza(50), 180, (0, 0, 0, 100))
         assert px.colorspace.name == "DeviceCMYK"

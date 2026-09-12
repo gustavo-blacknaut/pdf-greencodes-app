@@ -154,19 +154,22 @@ describe('tradução das opções', () => {
   });
 
   it('a tinta do tons de preto chega inteira', async () => {
-    expect(await opcoesEnviadas('black-tones', { tinta: 'k100', limite: 200, dpi: 220 })).toEqual({
+    expect(await opcoesEnviadas('black-tones', { tinta: 'k100', limite: 200, dpi: 220, modo: 'limiar' })).toEqual({
       tinta: 'k100',
       limite: 200,
       dpi: 220,
+      modo: 'limiar',
     });
   });
 
-  it('sem tinta escolhida, vai a de tela', async () => {
-    expect(await opcoesEnviadas('black-tones', {})).toMatchObject({ tinta: 'rgb' });
+  it('sem tinta escolhida, vai a de tela; sem modo, vai a curva', async () => {
+    // A curva é o padrão porque o limiar jogava fora o meio-tom da página
+    // inteira: foto virava mancha e a letra saía engrossada.
+    expect(await opcoesEnviadas('black-tones', {})).toMatchObject({ tinta: 'rgb', modo: 'curva' });
   });
 
   it('dpi que não é número cai no padrão em vez de virar NaN', async () => {
-    expect(await opcoesEnviadas('grayscale', { dpi: 'alto' })).toEqual({ dpi: 150 });
+    expect(await opcoesEnviadas('grayscale', { dpi: 'alto' })).toEqual({ dpi: 150, contraste: 'auto' });
   });
 });
 

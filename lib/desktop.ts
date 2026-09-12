@@ -34,6 +34,7 @@ async function invoke<T>(comando: string, argumentos?: InvokeArgs, opcoes?: Invo
   }
 }
 
+import type { Ajustes } from './impressao/ajustes';
 import { DPI_MAXIMO, type Montagem, type Orientacao } from './impressao/folha';
 import type { BordaDaImpressora } from './impressao/layout';
 
@@ -93,6 +94,8 @@ export type OpcoesImpressao = {
    * não de quem imprime — por isso não é guardada com as outras opções.
    */
   bordaMm?: BordaDaImpressora;
+  /** Os ajustes de imagem do arquivo que está sendo impresso. São dele, não da fila. */
+  ajustes?: Ajustes;
   /** Margem em milímetros. Nos lados e em cima/embaixo, separadas. */
   margemLadosMm?: number;
   margemCimaMm?: number;
@@ -518,6 +521,7 @@ export function montagemDe(opcoes: OpcoesImpressao = {}): Montagem {
     paisagem: Boolean(opcoes.paisagem),
     colorido: opcoes.colorido !== false,
     borda: opcoes.bordaMm,
+    ajustes: opcoes.ajustes,
     // Sempre a melhor: quem imprime não deveria ter de escolher entre nítido
     // e borrado. Papel grande desce sozinho até caber na memória.
     dpi: DPI_MAXIMO,

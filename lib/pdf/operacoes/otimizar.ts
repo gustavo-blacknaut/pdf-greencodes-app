@@ -253,14 +253,106 @@ export function filtroInverter(dados: Uint8ClampedArray): void {
 }
 
 /**
- * Tudo acima do limite vira branco; o resto vira preto puro.
+ * De que tom cada tom vira, nos dois modos do tons de preto.
  *
- * Sem meio-termo de propósito: cinza claro imprime falhado, e texto
- * digitalizado costuma sair cinza. Assim ele sai cheio.
+ * São 256 valores, um por tom possível — a mesma tabela do motor Python, para
+ * o site e o aplicativo entregarem a mesma folha.
+ *
+ * No limiar não há meio-termo: cinza claro imprime falhado e texto
+ * digitalizado costuma sair cinza, então ele vira preto cheio. O preço é
+ * alto e foi o que fez o defeito: a borda suavizada de cada letra também
+ * vira preta, o texto sai engrossado, e foto vira mancha preta.
+ *
+ * Na curva — o padrão — o escuro vai a preto cheio, o claro vai a branco de
+ * papel e o meio-tom continua existindo, só que mais fundo.
  */
-export function filtroTonsDePreto(dados: Uint8ClampedArray, limite: number): void {
+/**
+ * Onde ficam as pontas da imagem, ignorando o pixel perdido.
+ *
+ * Um preto solto num canto não pode decidir o preto da página inteira, então
+ * as pontas são percentis. A amostragem de sete em sete mantém a conta barata
+ * numa página de dois milhões de pixels.
+ */
+export function pontasDaImagem(dados: Uint8ClampedArray, baixo = 0.005, alto = 0.995): [number, number] {
+  const histograma = new Uint32Array(256);
+  let total = 0;
+  for (let p = 0; p < dados.length; p += 4 * 7) {
+    histograma[dados[p]] += 1;
+    total += 1;
+  }
+  if (!total) return [0, 255];
+
+  const tomEm = (fracao: number) => {
+    const alvo = total * fracao;
+    let soma = 0;
+    for (let tom = 0; tom < 256; tom += 1) {
+      soma += histograma[tom];
+      if (soma >= alvo) return tom;
+    }
+    return 255;
+  };
+  return [tomEm(baixo), tomEm(alto)];
+}
+
+/**
+ * Estica a faixa usada até as pontas, com um S de leve.
+ *
+ * É a mesma tabela do motor Python. Esticar sozinho devolve o preto e o
+ * branco, mas o meio continua mole — é o "ficou tudo cinza" de uma foto
+ * convertida. O S dá corpo sem fechar sombra nem estourar luz.
+ */
+export function tabelaDeNiveis(preto: number, branco: number): Uint8ClampedArray {
+  const tabela = new Uint8ClampedArray(256);
+  if (branco - preto < 8) {
+    for (let tom = 0; tom < 256; tom += 1) tabela[tom] = tom;
+    return tabela;
+  }
+  const faixa = branco - preto;
+  for (let tom = 0; tom < 256; tom += 1) {
+    if (tom <= preto) continue;
+    if (tom >= branco) {
+      tabela[tom] = 255;
+      continue;
+    }
+    const esticado = (tom - preto) / faixa;
+    const doMeio = esticado - 0.5;
+    tabela[tom] = Math.round((esticado + 0.24 * doMeio * (1 - 4 * doMeio * doMeio)) * 255);
+  }
+  return tabela;
+}
+
+/** Níveis automáticos sobre pixels já em cinza, no lugar. */
+export function darContraste(dados: Uint8ClampedArray): void {
+  const [preto, branco] = pontasDaImagem(dados);
+  if (preto <= 2 && branco >= 252) return;
+  const tabela = tabelaDeNiveis(preto, branco);
   for (let p = 0; p < dados.length; p += 4) {
-    const valor = luz(dados, p) > limite ? 255 : 0;
+    const valor = tabela[dados[p]];
+    dados[p] = valor;
+    dados[p + 1] = valor;
+    dados[p + 2] = valor;
+  }
+}
+
+export function tabelaDeTonsDePreto(limite: number, duro: boolean): Uint8ClampedArray {
+  const tabela = new Uint8ClampedArray(256);
+  if (duro) {
+    for (let tom = 0; tom < 256; tom += 1) tabela[tom] = tom > limite ? 255 : 0;
+    return tabela;
+  }
+  const branco = Math.max(limite + 1, Math.min(255, Math.round(limite * 1.15)));
+  const preto = Math.max(0, Math.min(branco - 1, Math.round(limite * 0.6)));
+  const faixa = branco - preto;
+  for (let tom = 0; tom < 256; tom += 1) {
+    tabela[tom] = tom <= preto ? 0 : tom >= branco ? 255 : Math.round(((tom - preto) * 255) / faixa);
+  }
+  return tabela;
+}
+
+export function filtroTonsDePreto(dados: Uint8ClampedArray, limite: number, duro = false): void {
+  const tabela = tabelaDeTonsDePreto(limite, duro);
+  for (let p = 0; p < dados.length; p += 4) {
+    const valor = tabela[Math.round(luz(dados, p))];
     dados[p] = valor;
     dados[p + 1] = valor;
     dados[p + 2] = valor;
@@ -300,12 +392,14 @@ export async function blackTones(ctx: RunContext): Promise<RunResult> {
   // Acima disto é fundo; abaixo é conteúdo. 180 de 255 deixa o cinza claro
   // do papel digitalizado virar branco e o cinza do texto virar preto.
   const limite = Math.max(60, Math.min(240, Number(ctx.options.limite ?? 180)));
+  // Duro só quando pedido: é o modo que estraga foto e engrossa texto.
+  const duro = String(ctx.options.modo ?? 'curva') === 'limiar';
 
   return redesenharComFiltro(
     ctx,
-    (dados) => filtroTonsDePreto(dados, limite),
+    (dados) => filtroTonsDePreto(dados, limite, duro),
     'preto',
-    notasDoTonsDePreto(String(ctx.options.tinta ?? 'rgb')),
+    notasDoTonsDePreto(String(ctx.options.tinta ?? 'rgb'), duro),
   );
 }
 
@@ -317,11 +411,16 @@ export async function blackTones(ctx: RunContext): Promise<RunResult> {
  * entregar quadricromia achando que é chapa preta é o tipo de erro que só
  * aparece na hora da impressão, com o trabalho já rodando.
  */
-export function notasDoTonsDePreto(tinta: string): string[] {
-  const comuns = [
-    'Cinza virou preto puro e o fundo virou branco. Texto claro de digitalização sai cheio em vez de falhado.',
-    'Não há meio-tom: foto neste modo vira mancha. Para foto, use tons de cinza.',
-  ];
+export function notasDoTonsDePreto(tinta: string, duro = false): string[] {
+  const comuns = duro
+    ? [
+        'Cinza virou preto puro e o fundo virou branco, sem meio-tom. Texto claro de digitalização sai cheio em vez de falhado.',
+        'Neste modo foto vira mancha e a borda da letra engrossa. Para documento com foto, use a curva.',
+      ]
+    : [
+        'O escuro virou preto cheio e o fundo virou branco, com o meio-tom preservado.',
+        'Foto continua foto: para jogar fora o meio-tom de propósito, escolha o limiar.',
+      ];
 
   if (tinta !== 'k100' && tinta !== 'rico') return comuns;
 
@@ -340,6 +439,7 @@ export async function grayscale(ctx: RunContext): Promise<RunResult> {
   const { PDFDocument } = await loadPdfLib();
   const source = ctx.files[0];
   const dpi = Math.max(72, Math.min(300, Number(ctx.options.dpi ?? 150)));
+  const comContraste = String(ctx.options.contraste ?? 'auto') !== 'nenhum';
   const doc = await openWithPdfJs(source.bytes, source.senha);
   const out = await PDFDocument.create();
   const canvas = document.createElement('canvas');
@@ -361,6 +461,7 @@ export async function grayscale(ctx: RunContext): Promise<RunResult> {
         dados[p + 1] = cinza;
         dados[p + 2] = cinza;
       }
+      if (comContraste) darContraste(dados);
       pincel.putImageData(imagem, 0, 0);
     }
 

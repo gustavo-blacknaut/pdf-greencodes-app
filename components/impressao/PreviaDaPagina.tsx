@@ -23,9 +23,30 @@ export type FolhaNaTela = {
   imprimivel?: { x: number; y: number; largura: number; altura: number } | null;
   espelho?: string;
   negativo?: boolean;
-  /** Preto e branco: a prévia mostra cinza, como vai sair. */
-  cinza?: boolean;
+  /** Giro da arte, em graus. A caixa já vem girada; o desenho gira por cima. */
+  giro?: number;
 };
+
+/**
+ * Onde o desenho da página fica dentro da folha.
+ *
+ * Girado 90 ou 270, o canvas entra com a largura e a altura trocadas e roda
+ * em torno do próprio centro: assim ele acaba ocupando exatamente a caixa da
+ * arte, que já foi calculada girada.
+ */
+function estiloDaArte(folha: FolhaNaTela): React.CSSProperties {
+  const deitado = folha.giro === 90 || folha.giro === 270;
+  const largura = deitado ? folha.arte.altura : folha.arte.largura;
+  const altura = deitado ? folha.arte.largura : folha.arte.altura;
+  return {
+    left: `${folha.arte.x + (folha.arte.largura - largura) / 2}px`,
+    top: `${folha.arte.y + (folha.arte.altura - altura) / 2}px`,
+    width: `${largura}px`,
+    height: `${altura}px`,
+    transform: [folha.espelho, folha.giro ? `rotate(${folha.giro}deg)` : ''].filter(Boolean).join(' ') || undefined,
+    filter: folha.negativo ? 'invert(1)' : undefined,
+  };
+}
 
 export function PreviaDaPagina({
   nome,
@@ -117,25 +138,7 @@ export function PreviaDaPagina({
               className={folha ? 'relative rounded-lg bg-white shadow-lg' : 'relative'}
               style={folha ? { width: `${folha.largura}px`, height: `${folha.altura}px` } : undefined}
             >
-              <canvas
-                ref={telaRef}
-                className={folha ? 'absolute block' : 'block rounded-lg bg-white shadow-lg'}
-                style={
-                  folha
-                    ? {
-                        left: `${folha.arte.x}px`,
-                        top: `${folha.arte.y}px`,
-                        width: `${folha.arte.largura}px`,
-                        height: `${folha.arte.altura}px`,
-                        transform: folha.espelho,
-                        filter:
-                          [folha.cinza ? 'grayscale(1)' : '', folha.negativo ? 'invert(1)' : '']
-                            .filter(Boolean)
-                            .join(' ') || undefined,
-                      }
-                    : undefined
-                }
-              />
+              <canvas ref={telaRef} className={folha ? 'absolute block' : 'block rounded-lg bg-white shadow-lg'} style={folha ? estiloDaArte(folha) : undefined} />
               {folha?.imprimivel && (
                 <span
                   className="pointer-events-none absolute border border-dashed border-sky-500/70"

@@ -80,7 +80,7 @@ const NO_PYTHON: Record<string, Traducao> = {
   grayscale: {
     acao: 'tons-de-cinza',
     rotulo: 'Convertendo para cinza',
-    opcoes: (o) => ({ dpi: numero(o.dpi, 150) }),
+    opcoes: (o) => ({ dpi: numero(o.dpi, 150), contraste: String(o.contraste ?? 'auto') }),
   },
 
   'invert-colors': {
@@ -96,6 +96,7 @@ const NO_PYTHON: Record<string, Traducao> = {
       dpi: numero(o.dpi, 150),
       limite: numero(o.limite, 180),
       tinta: String(o.tinta ?? 'rgb'),
+      modo: String(o.modo ?? 'curva'),
     }),
   },
 

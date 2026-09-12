@@ -123,10 +123,44 @@ class TestCores:
         rodar("inverter-cor", [origem], {"dpi": 72}, saida=destino)
         assert cor_do_canto(destino) < 60, "o fundo branco devia ter virado preto"
 
-    def test_tons_de_preto_nao_deixa_meio_tom(self, criar_pdf, rodar, tmp_path):
+    def _pdf_com_degrade(self, tmp_path):
+        """Uma pagina com uma faixa que vai do branco ao preto, como uma foto."""
+        doc = pymupdf.open()
+        pagina = doc.new_page(width=300, height=200)
+        passos = 50
+        for i in range(passos):
+            tom = 1 - i / (passos - 1)
+            faixa = pymupdf.Rect(0, 200 * i / passos, 300, 200 * (i + 1) / passos + 1)
+            pagina.draw_rect(faixa, color=None, fill=(tom, tom, tom))
+        caminho = str(tmp_path / "degrade.pdf")
+        doc.save(caminho)
+        doc.close()
+        return caminho
+
+    def test_tons_de_preto_na_curva_mantem_o_meio_tom(self, rodar, tmp_path):
+        """O defeito que este teste prende: "fica tudo borrado de preto".
+
+        No limiar a pagina inteira ia para os extremos, entao foto virava
+        mancha. A curva — que virou o padrao — escurece o escuro e branqueia o
+        papel, mas o meio continua existindo.
+        """
+        origem = self._pdf_com_degrade(tmp_path)
+        destino = str(tmp_path / "curva.pdf")
+        rodar("tons-de-preto", [origem], {"dpi": 72, "limite": 180}, saida=destino)
+
+        doc = pymupdf.open(destino)
+        amostras = doc[0].get_pixmap(dpi=36, colorspace=pymupdf.csGRAY).samples
+        doc.close()
+
+        meio = sum(1 for t in amostras if 30 < t < 225) / len(amostras)
+        assert meio > 0.2, f"o degrade perdeu o meio-tom: so {meio:.0%} entre os extremos"
+        assert min(amostras) < 20, "o escuro precisa chegar em preto cheio"
+        assert max(amostras) > 240, "o claro precisa virar papel"
+
+    def test_tons_de_preto_no_limiar_nao_deixa_meio_tom(self, criar_pdf, rodar, tmp_path):
         origem = criar_pdf(paginas=1)
         destino = str(tmp_path / "preto.pdf")
-        rodar("tons-de-preto", [origem], {"dpi": 72, "limite": 180}, saida=destino)
+        rodar("tons-de-preto", [origem], {"dpi": 72, "limite": 180, "modo": "limiar"}, saida=destino)
 
         doc = pymupdf.open(destino)
         pixels = doc[0].get_pixmap(dpi=36, colorspace=pymupdf.csGRAY)

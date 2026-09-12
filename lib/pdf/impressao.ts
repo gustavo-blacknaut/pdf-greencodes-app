@@ -13,6 +13,7 @@
  * aba em máquina fraca.
  */
 
+import { medidaGirada } from '../impressao/ajustes';
 import { cabeNaMemoria, desenharFolha, planoDaFolha, pontosParaMm, type Montagem } from '../impressao/folha';
 import { openWithPdfJs, renderPageToCanvas } from './nucleo';
 
@@ -60,7 +61,10 @@ export async function prepararParaImpressao(
       // desce do máximo para caber, e cada página decide se deita.
       const plano = planoDaFolha(arte, montagem);
       const dpiDaFolha = plano.pontosPorMm * 25.4;
-      const fator = arte.largura > 0 ? plano.arte.largura / plano.pontosPorMm / arte.largura : 1;
+      // Contra a arte já girada: com 90 graus, a largura da caixa responde à
+      // altura da página, e comparar com a largura daria um fator torto.
+      const naFolha = medidaGirada(arte, montagem.ajustes?.girar ?? 0);
+      const fator = naFolha.largura > 0 ? plano.arte.largura / plano.pontosPorMm / naFolha.largura : 1;
       const dpiDaPagina = Math.min(
         Math.max(dpiDaFolha * fator, 72),
         DPI_MAXIMO_DA_PAGINA,

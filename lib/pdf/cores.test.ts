@@ -6,7 +6,7 @@
  * nem carregar o pdf.js.
  */
 import { describe, expect, it } from 'vitest';
-import { filtroInverter, filtroTonsDePreto, notasDoTonsDePreto } from './operacoes/otimizar';
+import { filtroInverter, filtroTonsDePreto, notasDoTonsDePreto, tabelaDeTonsDePreto } from './operacoes/otimizar';
 
 /** Um pixel opaco, para o filtro trabalhar em cima. */
 function pixel(r: number, g: number, b: number): Uint8ClampedArray {
@@ -47,31 +47,84 @@ describe('inverter cor', () => {
   });
 });
 
-describe('tons de preto', () => {
+describe('tons de preto no limiar', () => {
   it('cinza médio vira preto puro', () => {
     const d = pixel(128, 128, 128);
-    filtroTonsDePreto(d, 180);
+    filtroTonsDePreto(d, 180, true);
     expect(cor(d)).toEqual([0, 0, 0]);
   });
 
   it('cinza bem claro vira branco, para o fundo não sujar', () => {
     const d = pixel(230, 230, 230);
-    filtroTonsDePreto(d, 180);
+    filtroTonsDePreto(d, 180, true);
     expect(cor(d)).toEqual([255, 255, 255]);
   });
 
   it('o limite decide: com 240, o mesmo cinza claro vira preto', () => {
     const d = pixel(230, 230, 230);
-    filtroTonsDePreto(d, 240);
+    filtroTonsDePreto(d, 240, true);
     expect(cor(d)).toEqual([0, 0, 0]);
   });
 
   it('não sobra meio-tom nenhum', () => {
     const d = new Uint8ClampedArray([100, 150, 200, 255, 20, 20, 20, 255, 250, 250, 250, 255]);
-    filtroTonsDePreto(d, 180);
+    filtroTonsDePreto(d, 180, true);
     for (const canal of [d[0], d[4], d[8]]) {
       expect([0, 255]).toContain(canal);
     }
+  });
+});
+
+/**
+ * O defeito que estes testes prendem: "fica tudo borrado de preto".
+ *
+ * O limiar era o único modo, e ele joga fora o meio-tom da página inteira —
+ * a foto vira mancha e a borda suavizada de cada letra vira preta, engrossando
+ * o texto. A curva é o padrão agora: escurece o escuro, branqueia o papel e
+ * deixa o meio existir.
+ */
+describe('tons de preto na curva', () => {
+  it('o escuro continua indo a preto cheio', () => {
+    const d = pixel(60, 60, 60);
+    filtroTonsDePreto(d, 180);
+    expect(cor(d)).toEqual([0, 0, 0]);
+  });
+
+  it('o fundo claro continua indo a branco de papel', () => {
+    const d = pixel(230, 230, 230);
+    filtroTonsDePreto(d, 180);
+    expect(cor(d)).toEqual([255, 255, 255]);
+  });
+
+  it('o meio-tom sobrevive, e em ordem', () => {
+    const tons = [120, 150, 180, 200].map((t) => {
+      const d = pixel(t, t, t);
+      filtroTonsDePreto(d, 180);
+      return d[0];
+    });
+    // Nem todos no 0 ou no 255: é isso que faz a foto continuar foto.
+    expect(tons.some((t) => t > 0 && t < 255)).toBe(true);
+    for (let i = 1; i < tons.length; i += 1) expect(tons[i]).toBeGreaterThanOrEqual(tons[i - 1]);
+  });
+
+  it('o escuro escurece e o claro clareia: é isso que enche o preto', () => {
+    const depois = (t: number) => {
+      const d = pixel(t, t, t);
+      filtroTonsDePreto(d, 180);
+      return d[0];
+    };
+    // Abaixo do meio da rampa some para o preto; acima, sobe para o papel.
+    expect(depois(120)).toBeLessThan(120);
+    expect(depois(150)).toBeLessThan(150);
+    expect(depois(200)).toBeGreaterThan(200);
+  });
+
+  it('a mesma tabela do motor: 256 valores, sem voltar atrás', () => {
+    const tabela = tabelaDeTonsDePreto(180, false);
+    expect(tabela).toHaveLength(256);
+    expect(tabela[0]).toBe(0);
+    expect(tabela[255]).toBe(255);
+    for (let tom = 1; tom < 256; tom += 1) expect(tabela[tom]).toBeGreaterThanOrEqual(tabela[tom - 1]);
   });
 });
 
@@ -98,6 +151,6 @@ describe('o aviso do tons de preto no site', () => {
   it('as notas de sempre continuam depois do aviso', () => {
     const notas = notasDoTonsDePreto('k100');
     expect(notas).toHaveLength(3);
-    expect(notas[2]).toContain('foto neste modo vira mancha');
+    expect(notas[2]).toContain('meio-tom');
   });
 });

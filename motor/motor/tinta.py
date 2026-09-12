@@ -48,7 +48,7 @@ def porcentagem(valor: int) -> int:
 
 @lru_cache(maxsize=16)
 def tabela_do_canal(corte: int, tinta: int) -> bytes:
-    """Quanto deste canal cada tom de cinza recebe.
+    """Quanto deste canal cada tom de cinza recebe, sem meio-tom.
 
     São 256 bytes, um por tom possível. Acima do corte é papel e não recebe
     tinta nenhuma; abaixo recebe a quantidade cheia daquele canal.
@@ -56,12 +56,35 @@ def tabela_do_canal(corte: int, tinta: int) -> bytes:
     return bytes(0 if tom > corte else tinta for tom in range(256))
 
 
-def cmyk_do_cinza(cinza: pymupdf.Pixmap, corte: int, cmyk: tuple[int, int, int, int]) -> pymupdf.Pixmap:
+@lru_cache(maxsize=16)
+def tabela_do_canal_com_meio_tom(corte: int, tinta: int) -> bytes:
+    """A mesma coisa, mas com o meio-tom no meio.
+
+    O escuro leva a tinta cheia e o claro não leva nenhuma, como no limiar; a
+    diferença é que entre os dois a tinta acompanha o tom, e é isso que faz
+    foto continuar foto quando a chapa é gerada — o RIP resolve a retícula.
+    """
+    branco = max(corte + 1, min(255, int(corte * 1.15)))
+    preto = max(0, min(branco - 1, int(corte * 0.6)))
+    faixa = branco - preto
+    return bytes(
+        tinta if tom <= preto else 0 if tom >= branco else round(tinta * (branco - tom) / faixa)
+        for tom in range(256)
+    )
+
+
+def cmyk_do_cinza(
+    cinza: pymupdf.Pixmap,
+    corte: int,
+    cmyk: tuple[int, int, int, int],
+    duro: bool = True,
+) -> pymupdf.Pixmap:
     """Transforma a página em cinza numa página de duas cores em CMYK.
 
     Onde o cinza é escuro entra a tinta escolhida; onde é claro não entra
-    tinta nenhuma, e o papel aparece. Sem meio-tom: é o mesmo limiar do tons
-    de preto, só que agora dizendo em qual chapa a tinta vai.
+    tinta nenhuma, e o papel aparece. No modo duro não há meio-tom — é o mesmo
+    limiar do tons de preto, só que dizendo em qual chapa a tinta vai; na
+    curva, a tinta acompanha o tom.
     """
     total = cinza.width * cinza.height
     vazio = bytes(total)
@@ -69,7 +92,8 @@ def cmyk_do_cinza(cinza: pymupdf.Pixmap, corte: int, cmyk: tuple[int, int, int, 
     planos = []
     for percentual in cmyk:
         tinta = porcentagem(percentual)
-        planos.append(vazio if tinta == 0 else cinza.samples.translate(tabela_do_canal(corte, tinta)))
+        tabela = tabela_do_canal(corte, tinta) if duro else tabela_do_canal_com_meio_tom(corte, tinta)
+        planos.append(vazio if tinta == 0 else cinza.samples.translate(tabela))
 
     # Intercalar com fatia de passo 4: o bytearray faz isso em C, e o laço
     # equivalente em Python levaria segundos por página.

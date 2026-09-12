@@ -32,6 +32,20 @@ const DEITAR: Field = {
   help: 'Vira o papel de lado. Costuma render mais itens quando o que você monta é largo.',
 };
 
+/** Como a foto entra na medida do item. Só vale quando a arte é imagem. */
+const AJUSTE_DA_IMAGEM: Field = {
+  key: 'ajusteDaImagem',
+  type: 'select',
+  label: 'Se a arte for uma imagem',
+  default: 'proporcao',
+  options: [
+    { value: 'proporcao', label: 'Encaixar sem deformar', hint: 'a foto inteira aparece; o que sobra fica branco' },
+    { value: 'preencher', label: 'Preencher e cortar', hint: 'amplia até encher e corta o que passa' },
+    { value: 'esticar', label: 'Esticar até a medida', hint: 'ocupa tudo, mesmo deformando a foto' },
+  ],
+  help: 'A imagem vira a arte do item, na medida exata, desenhada a 300 DPI.',
+};
+
 export const GRAFICA: Tool[] = [
   {
     slug: 'marcas-de-corte',
@@ -99,8 +113,8 @@ export const GRAFICA: Tool[] = [
       'visita',
       'montagem de cartao',
     ],
-    accept: PDF_ACCEPT,
-    acceptLabel: 'PDF',
+    accept: [...PDF_ACCEPT, ...IMAGE_ACCEPT],
+    acceptLabel: 'PDF ou imagem',
     multiple: false,
     cta: 'Montar a folha',
     fields: [
@@ -136,6 +150,7 @@ export const GRAFICA: Tool[] = [
         showIf: { key: 'medida', equals: 'personalizado' },
       },
       { key: 'cartaoDeitado', type: 'toggle', label: 'Cartão deitado', default: true },
+      AJUSTE_DA_IMAGEM,
       PAPEIS,
       DEITAR,
       {
@@ -185,13 +200,14 @@ export const GRAFICA: Tool[] = [
       'label',
       'folha de etiquetas',
     ],
-    accept: PDF_ACCEPT,
-    acceptLabel: 'PDF',
+    accept: [...PDF_ACCEPT, ...IMAGE_ACCEPT],
+    acceptLabel: 'PDF ou imagem',
     multiple: false,
     cta: 'Montar a folha',
     fields: [
       { key: 'larguraMm', type: 'number', label: 'Largura da etiqueta (mm)', default: 50, min: 5, max: 400 },
       { key: 'alturaMm', type: 'number', label: 'Altura da etiqueta (mm)', default: 30, min: 5, max: 400 },
+      AJUSTE_DA_IMAGEM,
       PAPEIS,
       DEITAR,
       { key: 'margemMm', type: 'number', label: 'Margem da folha (mm)', default: 5, min: 0, max: 50 },
