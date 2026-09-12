@@ -6,6 +6,7 @@
  * interface usa para ler o catálogo.
  */
 
+import { CARIMBO } from './ferramentas/carimbo';
 import { CODIGOS } from './ferramentas/codigos';
 import { CONVERTER } from './ferramentas/converter';
 import { EDITAR } from './ferramentas/editar';
@@ -110,6 +111,7 @@ const CATALOGO = [
   ...ORGANIZAR,
   ...EDITAR,
   ...GRAFICA,
+  ...CARIMBO,
   ...ETIQUETAS,
   ...IMAGEM,
   ...CODIGOS,

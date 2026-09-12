@@ -40,11 +40,34 @@ MODELOS: Dict[str, Dict[str, Any]] = {
     "2x2pol": {"nome": "2x2 polegadas — visto americano", "largura": 51, "altura": 51},
     "6x9": {"nome": "6x9", "largura": 60, "altura": 90},
     "9x12": {"nome": "9x12", "largura": 90, "altura": 120},
+    # A polaroid do balcao e 7,5 x 10: duas cabem num 10x15, que e o papel que
+    # a loja usa. A Polaroid 600 de verdade (8,89 x 10,79) so cabe uma, e
+    # sobra papel — por isso ela ficou como opcao separada, e nao como padrao.
+    #
+    # `deitado` e a mesma polaroid de lado, com a tarja continuando embaixo:
+    # quem fotografa paisagem quer o cartao deitado, e nao a foto girada
+    # dentro de um cartao em pe.
     "polaroid": {
-        "nome": "Polaroid",
+        "nome": "Polaroid 7,5 x 10",
+        "largura": 75,
+        "altura": 100,
+        "moldura": {"esquerda": 5, "topo": 5, "largura": 65, "altura": 65},
+        "deitado": {
+            "largura": 100,
+            "altura": 75,
+            "moldura": {"esquerda": 5, "topo": 5, "largura": 90, "altura": 50},
+        },
+    },
+    "polaroid-600": {
+        "nome": "Polaroid 600 — a original",
         "largura": 88.9,
         "altura": 107.9,
         "moldura": {"esquerda": 4.95, "topo": 4.95, "largura": 79, "altura": 79},
+        "deitado": {
+            "largura": 107.9,
+            "altura": 88.9,
+            "moldura": {"esquerda": 4.95, "topo": 4.95, "largura": 98, "altura": 62},
+        },
     },
     "adesivo-redondo": {"nome": "Adesivo redondo 5 cm", "largura": 50, "altura": 50, "redondo": True},
     "adesivo-quadrado": {"nome": "Adesivo quadrado 5 cm", "largura": 50, "altura": 50},
@@ -196,6 +219,38 @@ def _desenhar_a_foto(
     return pagina.get_pixmap(clip=area, matrix=pymupdf.Matrix(escala, escala))
 
 
+def _escrever_na_tarja(
+    pagina: pymupdf.Page,
+    cartao: pymupdf.Rect,
+    janela: pymupdf.Rect,
+    texto: str,
+) -> None:
+    """Escreve na tarja branca da polaroid, centralizado.
+
+    A tarja e o que sobra do cartao abaixo da foto — e para isso que ela
+    existe. O tamanho da letra sai da altura da tarja e encolhe ate a frase
+    caber na largura: nome comprido nao pode vazar para fora do cartao.
+    """
+    tarja = pymupdf.Rect(cartao.x0, janela.y1, cartao.x1, cartao.y1)
+    if tarja.height < 6 or not texto.strip():
+        return
+
+    largura_util = tarja.width * 0.88
+    tamanho = min(tarja.height * 0.42, 22)
+    fonte = pymupdf.Font("helv")
+    while tamanho > 5 and fonte.text_length(texto, tamanho) > largura_util:
+        tamanho -= 0.5
+
+    linha = fonte.text_length(texto, tamanho)
+    pagina.insert_text(
+        pymupdf.Point(tarja.x0 + (tarja.width - linha) / 2, tarja.y0 + tarja.height / 2 + tamanho * 0.35),
+        texto,
+        fontsize=tamanho,
+        fontname="helv",
+        color=(0.15, 0.15, 0.15),
+    )
+
+
 def _celula(x_mm: float, y_mm: float, largura_mm: float, altura_mm: float) -> pymupdf.Rect:
     """Um retângulo em milímetros, devolvido em pontos."""
     return pymupdf.Rect(
@@ -236,6 +291,8 @@ def montar_folha(
     dpi: int,
     deitar: bool = False,
     esticar: bool = False,
+    texto: str = "",
+    sangria: float = 0.0,
     senha: str = "",
 ) -> Tuple[pymupdf.Document, Dict[str, Any]]:
     """Desenha a folha e devolve o documento junto com o que foi feito."""
@@ -263,9 +320,26 @@ def montar_folha(
         pagina_da_foto = imagem[0]
         area = area_do_recorte(pagina_da_foto, recorte)
 
-        largura_foto = modelo["largura"]
-        altura_foto = modelo["altura"]
+        medida_final = (float(modelo["largura"]), float(modelo["altura"]))
         moldura = modelo.get("moldura")
+
+        # Sobra para o corte: a foto sai um pouco maior que a medida final e a
+        # guilhotina entra por dentro da imagem. É o 3,2 x 4,2 do balcão para
+        # um 3x4 — sem isso, o corte um fio fora do lugar deixa tarja branca.
+        #
+        # Só vale se não custar foto nenhuma: numa revelação 10x15 em papel
+        # 10x15 a sobra não caberia, e aí ela some sozinha.
+        sangria = max(0.0, min(10.0, float(sangria)))
+        if sangria and not moldura:
+            com = cabem_quantas((medida_final[0] + sangria, medida_final[1] + sangria), papel, margem, espaco)
+            sem = cabem_quantas(medida_final, papel, margem, espaco)
+            if com[0] * com[1] < sem[0] * sem[1]:
+                sangria = 0.0
+        else:
+            sangria = 0.0
+
+        largura_foto = medida_final[0] + sangria
+        altura_foto = medida_final[1] + sangria
 
         colunas, linhas, girado = encaixar((largura_foto, altura_foto), papel, margem, espaco, deitar)
 
@@ -348,6 +422,8 @@ def montar_folha(
                         moldura["altura"],
                     )
                     pagina.insert_image(dentro, stream=foto, rotate=giro, keep_proportion=False)
+                    if texto:
+                        _escrever_na_tarja(pagina, caixa, dentro, texto)
                 else:
                     pagina.insert_image(caixa, stream=foto, rotate=giro, keep_proportion=False)
 
@@ -357,11 +433,22 @@ def montar_folha(
                     meio = pymupdf.Point((caixa.x0 + caixa.x1) / 2, (caixa.y0 + caixa.y1) / 2)
                     pagina.draw_circle(meio, caixa.width / 2, color=(0.6, 0.6, 0.6), width=0.25)
                 elif marcas:
-                    _marcas_de_corte(pagina, caixa)
+                    # A marca fica na medida final, e não na borda do que foi
+                    # impresso: é por ali que a guilhotina passa, deixando a
+                    # sobra de cada lado como folga.
+                    meio_da_sobra = sangria / 2
+                    _marcas_de_corte(
+                        pagina,
+                        caixa + (meio_da_sobra * PONTOS_POR_MM, meio_da_sobra * PONTOS_POR_MM,
+                                 -meio_da_sobra * PONTOS_POR_MM, -meio_da_sobra * PONTOS_POR_MM),
+                    )
 
                 postas += 1
 
         outra = cabem_quantas((altura_foto, largura_foto), papel, margem, espaco)
+        # E o mesmo papel virado na bandeja: uma polaroid de 7,5x10 cabe uma
+        # vez no 10x15 em pe e duas vezes deitado.
+        virada = cabem_quantas((largura_foto, altura_foto), (papel[1], papel[0]), margem, espaco)
 
         resumo = {
             "modelo": modelo["nome"],
@@ -373,6 +460,9 @@ def montar_folha(
             "postas": postas,
             "girada": girado,
             "cabemDeitando": outra[0] * outra[1],
+            "cabemComAFolhaDeitada": virada[0] * virada[1],
+            "sangriaMm": round(sangria, 1),
+            "medidaFinalMm": [round(medida_final[0], 1), round(medida_final[1], 1)],
             "esticada": esticar and abs(area.width / area.height - alvo) > 0.02,
         }
         return folha, resumo
@@ -384,9 +474,25 @@ def folha_de_fotos(pedido: Pedido) -> Dict[str, Any]:
         raise ErroDoUsuario("escolha a foto primeiro")
 
     nome_modelo = str(pedido.opcao("modelo", "3x4"))
-    modelo = MODELOS.get(nome_modelo)
+    if nome_modelo == "personalizado":
+        # Medida livre: adesivo de 4 cm, foto de 7x9, tag de 25x60 — o balcao
+        # pede tamanho que nenhuma lista cobre.
+        modelo = {
+            "nome": "Personalizado",
+            "largura": max(10.0, min(400.0, float(pedido.opcao("larguraMm", 50)))),
+            "altura": max(10.0, min(400.0, float(pedido.opcao("alturaMm", 50)))),
+        }
+        if bool(pedido.opcao("redondo", False)):
+            modelo["redondo"] = True
+    else:
+        modelo = MODELOS.get(nome_modelo)
     if modelo is None:
         raise ErroDoUsuario(f"não conheço o formato {nome_modelo}")
+
+    # A polaroid (e qualquer modelo com moldura) pode ir deitada: o cartao e
+    # que vira, com a tarja continuando embaixo.
+    if bool(pedido.opcao("deitar", False)) and modelo.get("deitado"):
+        modelo = {**modelo, **modelo["deitado"]}
 
     nome_papel = str(pedido.opcao("papel", "10x15"))
     papel = PAPEIS.get(nome_papel)
@@ -414,6 +520,8 @@ def folha_de_fotos(pedido: Pedido) -> Dict[str, Any]:
         marcas=bool(pedido.opcao("marcas", True)),
         deitar=bool(pedido.opcao("deitar", False)),
         esticar=bool(pedido.opcao("esticar", False)),
+        texto=str(pedido.opcao("texto", "") or ""),
+        sangria=float(pedido.opcao("sangriaMm", 0)),
         quantidade=None if quantidade in (None, "", 0) else int(quantidade),
         dpi=DPI_DA_PREVIA if previa else max(150, min(600, int(pedido.opcao("dpi", DPI_PADRAO)))),
     )
@@ -437,8 +545,34 @@ def folha_de_fotos(pedido: Pedido) -> Dict[str, Any]:
         "previa": previa,
         "bytes": os.path.getsize(destino),
         **resumo,
-        "notas": [] if previa else [_recado(resumo)],
+        "notas": [] if previa else _recados(resumo),
     }
+
+
+def _recados(resumo: Dict[str, Any]) -> List[str]:
+    """O que sai na folha, e o que sairia se o papel virasse.
+
+    A segunda parte existe porque o papel de foto nao tem lado: 10x15 e 15x10
+    sao a mesma folha na bandeja. Uma polaroid de 7,5x10 cabe uma vez no 10x15
+    em pe e duas vezes deitado — e quem esta no balcao precisa saber disso
+    antes de imprimir, nao depois.
+    """
+    recados = [_recado(resumo)]
+    sangria = float(resumo.get("sangriaMm", 0))
+    if sangria:
+        final = resumo.get("medidaFinalMm", [0, 0])
+        recados.append(
+            f"Cada foto sai impressa com {resumo['fotoMm'][0]}x{resumo['fotoMm'][1]} mm e as marcas estao "
+            f"na medida final, {final[0]}x{final[1]} mm: a sobra de {sangria} mm e para a guilhotina entrar "
+            "por dentro da imagem, sem deixar tarja branca."
+        )
+    virando = int(resumo.get("cabemComAFolhaDeitada", 0))
+    if virando > int(resumo.get("cabem", 0)):
+        recados.append(
+            f"Virando a folha cabem {virando} em vez de {resumo['cabem']}: e o mesmo papel, "
+            "so de lado na bandeja. Marque 'folha deitada' e monte de novo."
+        )
+    return recados
 
 
 def _recado(resumo: Dict[str, Any]) -> str:

@@ -366,3 +366,92 @@ class TestOrientacaoDoPapel:
         doc = pymupdf.open(resultado["arquivo"])
         assert doc[0].rect.width < doc[0].rect.height
         doc.close()
+
+
+class TestSobraParaOCorte:
+    """O 3x4 do balcao sai impresso 3,2 x 4,2 e vira 3x4 na guilhotina."""
+
+    def test_a_foto_sai_maior_e_as_marcas_ficam_na_medida_final(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "folha.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "3x4", "papel": "10x15", "sangriaMm": 2},
+            saida=destino,
+        )
+
+        assert resultado["postas"] == 9, "com 2 mm de sobra ainda tem que caber nove"
+        assert resultado["fotoMm"] == [32.0, 42.0]
+        assert resultado["medidaFinalMm"] == [30.0, 40.0]
+
+    def test_a_sobra_desaparece_quando_custaria_uma_foto(self, criar_foto, rodar, tmp_path):
+        # Revelacao 10x15 em papel 10x15: 2 mm de sobra nao caberiam.
+        destino = str(tmp_path / "revelacao.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "10x15", "papel": "10x15", "sangriaMm": 2},
+            saida=destino,
+        )
+        assert resultado["sangriaMm"] == 0.0
+        assert resultado["fotoMm"] == [100.0, 150.0]
+
+
+class TestPolaroid:
+    def test_duas_polaroids_de_7_5x10_na_folha_10x15_deitada(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "polaroid.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "polaroid", "papel": "10x15", "paisagem": True},
+            saida=destino,
+        )
+        assert resultado["fotoMm"] == [75.0, 100.0]
+        assert resultado["postas"] == 2
+
+    def test_a_polaroid_deitada_e_o_cartao_que_vira(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "polaroid.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "polaroid", "papel": "10x15", "deitar": True},
+            saida=destino,
+        )
+        assert resultado["fotoMm"] == [100.0, 75.0]
+        assert resultado["girada"] is False, "a polaroid nao gira a foto: o cartao e que deita"
+        assert resultado["postas"] == 2
+
+    def test_escreve_na_tarja_o_que_foi_pedido(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "polaroid.pdf")
+        rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "polaroid", "papel": "10x15", "paisagem": True, "texto": "Formatura 2026"},
+            saida=destino,
+        )
+        doc = pymupdf.open(destino)
+        texto = doc[0].get_text()
+        doc.close()
+        assert texto.count("Formatura 2026") == 2, "cada cartao da folha leva a frase"
+
+    def test_medida_livre_para_adesivo_de_qualquer_tamanho(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "adesivo.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "personalizado", "larguraMm": 40, "alturaMm": 40, "redondo": True, "papel": "10x15", "sangriaMm": 0},
+            saida=destino,
+        )
+        assert resultado["fotoMm"] == [40.0, 40.0]
+        assert resultado["postas"] == 6
+
+    def test_aviso_de_que_virando_a_folha_cabe_mais(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "polaroid.pdf")
+        resultado = rodar(
+            "folha-de-fotos",
+            [criar_foto()],
+            {"modelo": "polaroid", "papel": "10x15"},
+            saida=destino,
+        )
+        assert resultado["postas"] == 1
+        assert any("Virando a folha cabem 2" in nota for nota in resultado["notas"])

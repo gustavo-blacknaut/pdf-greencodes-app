@@ -276,6 +276,13 @@ const NO_PYTHON: Record<string, Traducao> = {
       marcas: o.marcas !== false,
       deitar: o.deitar === true,
       esticar: o.esticar === true,
+      // O que a pessoa escreve na tarja da polaroid, e a medida livre.
+      texto: String(o.texto ?? ''),
+      larguraMm: numero(o.larguraMm, 50),
+      alturaMm: numero(o.alturaMm, 50),
+      redondo: o.redondo === true,
+      // A sobra que a guilhotina come: 2 mm fazem o 3x4 sair 3,2 x 4,2.
+      sangriaMm: numero(o.sangriaMm, 2),
       // Zero quer dizer "quantas couberem", que é o padrão do motor.
       quantidade: numero(o.quantidade, 0),
       dpi: numero(o.dpi, 300),

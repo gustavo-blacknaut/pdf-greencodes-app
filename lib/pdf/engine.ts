@@ -50,6 +50,7 @@ import {
 } from './operacoes/imagem-editar';
 import { addBleed, foldMarks, frenteEVerso, posterTiles, stampImage } from './operacoes/grafica-extra';
 import { gerarCodigoBarras, gerarQrCode } from './operacoes/codigos';
+import { criarCarimbo } from './operacoes/carimbo';
 import { rodarNoPython, temMotorPython } from './motor-python';
 import type { LoadedFile, ProgressFn, RunContext, RunResult } from './tipos';
 import { formatBytes } from '../utils';
@@ -140,6 +141,7 @@ export const OPERATIONS = {
   'stamp-image': stampImage,
   'qr-code': gerarQrCode,
   barcode: gerarCodigoBarras,
+  stamp: criarCarimbo,
 } satisfies Record<string, (ctx: RunContext) => Promise<RunResult>>;
 
 export type OperationId = keyof typeof OPERATIONS;
