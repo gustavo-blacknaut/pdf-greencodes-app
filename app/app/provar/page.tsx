@@ -12,7 +12,7 @@
  * endereço `/app/provar` quando alguém quer saber se aquela máquina roda tudo.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Download, Loader2, Play } from 'lucide-react';
 import { TOOLS, defaultOptions } from '@/lib/tools';
 import { OPERATIONS, runOperation, type LoadedFile, type OperationId } from '@/lib/pdf/engine';
@@ -250,6 +250,13 @@ export default function ProvarTudo() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [rodando, setRodando] = useState(false);
   const [andamento, setAndamento] = useState('');
+  /*
+   * O HEIC é o único exemplo que não dá para inventar: o formato guarda uma
+   * imagem codificada em HEVC, e nada aqui codifica HEVC. Quem tem um iPhone
+   * fecha as 75 escolhendo uma foto — ela é lida na aba e nada dela entra no
+   * zip, que é o que sai desta tela.
+   */
+  const [heic, setHeic] = useState<File | null>(null);
 
   const provar = useCallback(async (guardarArquivos: boolean) => {
     setRodando(true);
@@ -282,7 +289,12 @@ export default function ProvarTudo() {
           continue;
         }
 
-        const entrada = entradaDaFerramenta(tool, { pdf, foto, txt, comFoto, office });
+        const entrada =
+          tool.operation === 'heic-to-image' && heic
+            ? // Nome trocado de propósito: o nome do arquivo dele não entra no
+              // relatório, e a ferramenta olha só a extensão.
+              [{ ...arquivoPara('foto-do-iphone.heic', await heic.arrayBuffer()), type: 'image/heic' }]
+            : entradaDaFerramenta(tool, { pdf, foto, txt, comFoto, office });
 
         const inicio = performance.now();
         try {
@@ -299,7 +311,8 @@ export default function ProvarTudo() {
           }));
           // Só os três primeiros de cada: "PDF para imagem" sozinho traz uma
           // imagem por página, e o zip viraria um despejo.
-          if (guardarArquivos) {
+          // A foto do iPhone é de quem abriu a tela: ela não vai para o zip.
+          if (guardarArquivos && tool.operation !== 'heic-to-image') {
             resultado.files.slice(0, 3).forEach((s, i) => saidas.push({ nome: arquivos[i].nome, blob: s.blob }));
           }
           resultados.push({
@@ -335,10 +348,18 @@ export default function ProvarTudo() {
       (window as unknown as { __provas?: Linha[] }).__provas = resultados;
     }
     return resultados;
-  }, []);
+  }, [heic]);
 
-  // Deixa a função à mão de quem abre a página pelo depurador.
-  (window as unknown as { __provar?: typeof provar }).__provar = provar;
+  /*
+   * Deixa a função à mão de quem abre a página pelo depurador.
+   *
+   * Dentro do efeito, e não no corpo: o Next pré-renderiza esta página no
+   * servidor para gerar o `out/`, e lá não existe `window` — no corpo isso
+   * derrubava a página inteira com 500, e o `next build` junto.
+   */
+  useEffect(() => {
+    (window as unknown as { __provar?: typeof provar }).__provar = provar;
+  }, [provar]);
 
   const certas = linhas.filter((l) => l.ok).length;
 
@@ -360,6 +381,17 @@ export default function ProvarTudo() {
           Rodar e baixar tudo
         </button>
       </div>
+
+      <label className="mt-4 flex flex-wrap items-center gap-2 text-[13px] text-muted">
+        <span>Para fechar as 75, escolha uma foto .HEIC do iPhone:</span>
+        <input
+          type="file"
+          accept=".heic,.heif,image/heic,image/heif"
+          onChange={(e) => setHeic(e.target.files?.[0] ?? null)}
+          className="text-[13px]"
+        />
+        <span>{heic ? 'escolhida — ela fica na aba e não entra no zip.' : 'sem ela, o HEIC fica de fora.'}</span>
+      </label>
 
       {linhas.length > 0 && (
         <p className="mt-4 text-sm">
