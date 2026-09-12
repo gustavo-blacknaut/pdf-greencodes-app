@@ -409,17 +409,32 @@ class TestPolaroid:
         assert resultado["fotoMm"] == [75.0, 100.0]
         assert resultado["postas"] == 2
 
-    def test_a_polaroid_deitada_e_o_cartao_que_vira(self, criar_foto, rodar, tmp_path):
+    def test_a_polaroid_deitada_mantem_o_cartao_e_deita_a_janela(self, criar_foto, rodar, tmp_path):
+        """O molde da loja: o cartao continua 75x100, a janela vira 67,9x50,9.
+
+        Girar o cartao inteiro era o que eu tinha feito antes de medir o
+        POLAROID DEITADO.cdr — e nao e o que a loja faz. O cartao de pe cabe
+        duas vezes no 10x15 deitado, e e assim que a folha e cortada.
+        """
         destino = str(tmp_path / "polaroid.pdf")
         resultado = rodar(
             "folha-de-fotos",
             [criar_foto()],
-            {"modelo": "polaroid", "papel": "10x15", "deitar": True},
+            {"modelo": "polaroid", "papel": "10x15", "paisagem": True, "deitar": True},
             saida=destino,
         )
-        assert resultado["fotoMm"] == [100.0, 75.0]
-        assert resultado["girada"] is False, "a polaroid nao gira a foto: o cartao e que deita"
+        assert resultado["fotoMm"] == [75.0, 100.0]
+        assert resultado["girada"] is False, "a polaroid nao gira a foto: a janela e que deita"
         assert resultado["postas"] == 2
+
+        # A janela deitada tem 67,9 x 50,9 mm no molde do Corel.
+        doc = pymupdf.open(destino)
+        MM = 25.4 / 72
+        imagens = [r for xref in {i[0] for i in doc[0].get_images(full=True)} for r in doc[0].get_image_rects(xref)]
+        doc.close()
+        assert imagens, "a folha saiu sem foto"
+        assert round(imagens[0].width * MM) == 68
+        assert round(imagens[0].height * MM) == 51
 
     def test_escreve_na_tarja_o_que_foi_pedido(self, criar_foto, rodar, tmp_path):
         destino = str(tmp_path / "polaroid.pdf")

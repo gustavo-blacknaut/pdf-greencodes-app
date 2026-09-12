@@ -40,22 +40,21 @@ MODELOS: Dict[str, Dict[str, Any]] = {
     "2x2pol": {"nome": "2x2 polegadas — visto americano", "largura": 51, "altura": 51},
     "6x9": {"nome": "6x9", "largura": 60, "altura": 90},
     "9x12": {"nome": "9x12", "largura": 90, "altura": 120},
-    # A polaroid do balcao e 7,5 x 10: duas cabem num 10x15, que e o papel que
-    # a loja usa. A Polaroid 600 de verdade (8,89 x 10,79) so cabe uma, e
-    # sobra papel — por isso ela ficou como opcao separada, e nao como padrao.
+    # A polaroid e o molde do balcao, medido no Corel da loja (POLAROID 2017 e
+    # POLAROID DEITADO): cartao de 75 x 100, dois num 10x15 deitado. A janela
+    # da foto em pe e 60 x 70, a 7,5 da esquerda e 5,2 do topo, sobrando 24,8
+    # de tarja para escrever.
     #
-    # `deitado` e a mesma polaroid de lado, com a tarja continuando embaixo:
-    # quem fotografa paisagem quer o cartao deitado, e nao a foto girada
-    # dentro de um cartao em pe.
+    # Deitado, o cartao continua em pe — o que muda e a janela, que fica 67,9
+    # x 50,9 e desce um pouco, deixando 34,4 de tarja. Era esse o detalhe que
+    # eu tinha errado: girar o cartao inteiro nao e o que a loja faz.
     "polaroid": {
         "nome": "Polaroid 7,5 x 10",
         "largura": 75,
         "altura": 100,
-        "moldura": {"esquerda": 5, "topo": 5, "largura": 65, "altura": 65},
+        "moldura": {"esquerda": 7.5, "topo": 5.2, "largura": 60, "altura": 70},
         "deitado": {
-            "largura": 100,
-            "altura": 75,
-            "moldura": {"esquerda": 5, "topo": 5, "largura": 90, "altura": 50},
+            "moldura": {"esquerda": 3.6, "topo": 14.7, "largura": 67.9, "altura": 50.9},
         },
     },
     "polaroid-600": {
@@ -63,10 +62,9 @@ MODELOS: Dict[str, Dict[str, Any]] = {
         "largura": 88.9,
         "altura": 107.9,
         "moldura": {"esquerda": 4.95, "topo": 4.95, "largura": 79, "altura": 79},
+        # Como na de 7,5 x 10: o cartao nao gira, a janela deita.
         "deitado": {
-            "largura": 107.9,
-            "altura": 88.9,
-            "moldura": {"esquerda": 4.95, "topo": 4.95, "largura": 98, "altura": 62},
+            "moldura": {"esquerda": 4.95, "topo": 12, "largura": 79, "altura": 59},
         },
     },
     "adesivo-redondo": {"nome": "Adesivo redondo 5 cm", "largura": 50, "altura": 50, "redondo": True},
@@ -91,6 +89,52 @@ ESPACO_PADRAO = 0.0
 
 DPI_PADRAO = 300
 DPI_DA_PREVIA = 100
+
+# As fontes que existem em qualquer Windows 10 ou 11. A escrita na tarja da
+# polaroid e a mao de quem revela a foto, entao a de maquina de escrever nao
+# serve de padrao: a Segoe Script tem cara de caneta.
+FONTES_DO_TEXTO: Dict[str, Tuple[str, str]] = {
+    "script": ("Segoe Script", "segoesc.ttf"),
+    "inkfree": ("Ink Free", "Inkfree.ttf"),
+    "comic": ("Comic Sans MS", "comic.ttf"),
+    "arial": ("Arial", "arial.ttf"),
+    "arial-negrito": ("Arial Negrito", "arialbd.ttf"),
+    "times": ("Times New Roman", "times.ttf"),
+    "georgia": ("Georgia", "georgia.ttf"),
+    "impact": ("Impact", "impact.ttf"),
+    "courier": ("Courier New", "cour.ttf"),
+}
+
+# Emoji nenhuma fonte de texto tem; esta tem 3.500 deles.
+ARQUIVO_DE_EMOJI = "seguiemj.ttf"
+
+_fontes_abertas: Dict[str, Any] = {}
+
+
+def _fonte_do_sistema(arquivo: str) -> pymupdf.Font:
+    """A fonte do Windows, aberta uma vez so.
+
+    Se o arquivo nao existir — Windows sem aquela fonte, ou outro sistema —,
+    cai na Helvetica embutida: melhor o texto sair com outra letra do que a
+    folha nao sair.
+    """
+    if arquivo not in _fontes_abertas:
+        caminho = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", arquivo)
+        try:
+            _fontes_abertas[arquivo] = pymupdf.Font(fontfile=caminho)
+        except Exception:  # noqa: BLE001
+            _fontes_abertas[arquivo] = pymupdf.Font("helv")
+    return _fontes_abertas[arquivo]
+
+
+def _fonte_da_letra(letra: str, principal: pymupdf.Font, emoji: pymupdf.Font) -> pymupdf.Font:
+    """A fonte que sabe desenhar esta letra."""
+    codigo = ord(letra)
+    if principal.has_glyph(codigo):
+        return principal
+    if emoji.has_glyph(codigo):
+        return emoji
+    return principal
 
 
 def cabem_quantas(
@@ -224,31 +268,42 @@ def _escrever_na_tarja(
     cartao: pymupdf.Rect,
     janela: pymupdf.Rect,
     texto: str,
+    fonte_escolhida: str = "script",
 ) -> None:
     """Escreve na tarja branca da polaroid, centralizado.
 
     A tarja e o que sobra do cartao abaixo da foto — e para isso que ela
     existe. O tamanho da letra sai da altura da tarja e encolhe ate a frase
     caber na largura: nome comprido nao pode vazar para fora do cartao.
+
+    Letra por letra, e nao a frase inteira de uma vez, porque cada caractere
+    pode precisar de uma fonte diferente: nenhuma fonte de texto do Windows
+    tem emoji, e a Segoe UI Emoji nao tem acento bonito. Entao o que a fonte
+    escolhida nao souber desenhar vai na de emoji, e o resto continua na dela.
     """
     tarja = pymupdf.Rect(cartao.x0, janela.y1, cartao.x1, cartao.y1)
     if tarja.height < 6 or not texto.strip():
         return
 
-    largura_util = tarja.width * 0.88
-    tamanho = min(tarja.height * 0.42, 22)
-    fonte = pymupdf.Font("helv")
-    while tamanho > 5 and fonte.text_length(texto, tamanho) > largura_util:
+    principal = _fonte_do_sistema(FONTES_DO_TEXTO.get(fonte_escolhida, FONTES_DO_TEXTO["script"])[1])
+    emoji = _fonte_do_sistema(ARQUIVO_DE_EMOJI)
+    pedacos = [(letra, _fonte_da_letra(letra, principal, emoji)) for letra in texto]
+
+    def largura(tamanho: float) -> float:
+        return sum(fonte.text_length(letra, tamanho) for letra, fonte in pedacos)
+
+    largura_util = tarja.width * 0.9
+    tamanho = min(tarja.height * 0.5, 28)
+    while tamanho > 4 and largura(tamanho) > largura_util:
         tamanho -= 0.5
 
-    linha = fonte.text_length(texto, tamanho)
-    pagina.insert_text(
-        pymupdf.Point(tarja.x0 + (tarja.width - linha) / 2, tarja.y0 + tarja.height / 2 + tamanho * 0.35),
-        texto,
-        fontsize=tamanho,
-        fontname="helv",
-        color=(0.15, 0.15, 0.15),
-    )
+    escritor = pymupdf.TextWriter(pagina.rect, color=(0.15, 0.15, 0.15))
+    x = tarja.x0 + (tarja.width - largura(tamanho)) / 2
+    y = tarja.y0 + tarja.height / 2 + tamanho * 0.35
+    for letra, fonte in pedacos:
+        escritor.append(pymupdf.Point(x, y), letra, font=fonte, fontsize=tamanho)
+        x += fonte.text_length(letra, tamanho)
+    escritor.write_text(pagina)
 
 
 def _celula(x_mm: float, y_mm: float, largura_mm: float, altura_mm: float) -> pymupdf.Rect:
@@ -292,6 +347,7 @@ def montar_folha(
     deitar: bool = False,
     esticar: bool = False,
     texto: str = "",
+    fonte_do_texto: str = "script",
     sangria: float = 0.0,
     senha: str = "",
 ) -> Tuple[pymupdf.Document, Dict[str, Any]]:
@@ -423,7 +479,7 @@ def montar_folha(
                     )
                     pagina.insert_image(dentro, stream=foto, rotate=giro, keep_proportion=False)
                     if texto:
-                        _escrever_na_tarja(pagina, caixa, dentro, texto)
+                        _escrever_na_tarja(pagina, caixa, dentro, texto, fonte_do_texto)
                 else:
                     pagina.insert_image(caixa, stream=foto, rotate=giro, keep_proportion=False)
 
@@ -521,6 +577,7 @@ def folha_de_fotos(pedido: Pedido) -> Dict[str, Any]:
         deitar=bool(pedido.opcao("deitar", False)),
         esticar=bool(pedido.opcao("esticar", False)),
         texto=str(pedido.opcao("texto", "") or ""),
+        fonte_do_texto=str(pedido.opcao("fonteDoTexto", "script")),
         sangria=float(pedido.opcao("sangriaMm", 0)),
         quantidade=None if quantidade in (None, "", 0) else int(quantidade),
         dpi=DPI_DA_PREVIA if previa else max(150, min(600, int(pedido.opcao("dpi", DPI_PADRAO)))),

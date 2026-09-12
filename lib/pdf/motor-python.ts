@@ -268,7 +268,12 @@ const NO_PYTHON: Record<string, Traducao> = {
     acao: 'folha-de-fotos',
     rotulo: 'Montando a folha',
     opcoes: (o) => ({
-      modelo: String(o.modelo ?? '3x4'),
+      // A Polaroid 600 é a mesma ferramenta com outra medida: na tela ela é um
+      // interruptor, e não um formato à parte, porque tudo o mais é igual.
+      modelo:
+        String(o.modelo ?? '3x4') === 'polaroid' && o.polaroid600 === true
+          ? 'polaroid-600'
+          : String(o.modelo ?? '3x4'),
       papel: String(o.papelFoto ?? '10x15'),
       paisagem: o.paisagem === true || o.paisagem === 'true',
       margem: numero(o.margemMm, 0),

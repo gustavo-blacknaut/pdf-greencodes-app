@@ -397,7 +397,45 @@ export const CONVERTER: Tool[] = [
     orderable: true,
     cta: 'Gerar PDF',
     fields: [
+      {
+        key: 'formato',
+        type: 'select',
+        label: 'Formato',
+        default: 'simples',
+        options: [
+          { value: 'simples', label: 'Simples', hint: 'A4 com margem de 2 cm e quebra de linha automática' },
+          { value: 'abnt', label: 'ABNT — NBR 14724', hint: 'trabalho de faculdade: margens 3/2, entrelinha 1,5, recuo e justificado' },
+        ],
+      },
       { key: 'size', type: 'range', label: 'Tamanho da letra', default: 11, min: 7, max: 18, step: 1, unit: 'pt' },
+      {
+        key: 'fonteAbnt',
+        type: 'select',
+        label: 'Letra',
+        default: 'times',
+        showIf: { key: 'formato', equals: 'abnt' },
+        options: [
+          { value: 'times', label: 'Times New Roman', hint: 'a mais pedida' },
+          { value: 'arial', label: 'Arial', hint: 'a outra que a norma aceita' },
+        ],
+      },
+      {
+        key: 'titulo',
+        type: 'text',
+        label: 'Título do trabalho',
+        default: '',
+        placeholder: 'A INFLUÊNCIA DA IMPRESSÃO DIGITAL NO COMÉRCIO LOCAL',
+        help: 'Sai centralizado, em maiúsculas e negrito, no alto da primeira página. Em branco, o texto começa direto.',
+        showIf: { key: 'formato', equals: 'abnt' },
+      },
+      {
+        key: 'numerarPaginas',
+        type: 'toggle',
+        label: 'Numerar as páginas',
+        default: true,
+        help: 'No canto superior direito, a 2 cm da borda, como a norma pede.',
+        showIf: { key: 'formato', equals: 'abnt' },
+      },
     ],
   },
 ];

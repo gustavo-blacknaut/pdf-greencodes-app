@@ -442,6 +442,7 @@ export async function powerpointToPdf(ctx: RunContext): Promise<RunResult> {
 /** Cada linha do .txt vira um parágrafo; o resto é o mesmo do .docx. */
 export async function textToPdf(ctx: RunContext): Promise<RunResult> {
   const tamanhoFonte = Math.max(7, Math.min(18, Number(ctx.options.size ?? 11)));
+  const abnt = String(ctx.options.formato ?? 'simples') === 'abnt';
   const outputs: OutputFile[] = [];
   let inputBytes = 0;
   let outputBytes = 0;
@@ -452,6 +453,22 @@ export async function textToPdf(ctx: RunContext): Promise<RunResult> {
     ctx.onProgress(f / ctx.files.length, `Lendo ${source.name}`);
 
     const texto = new TextDecoder('utf-8').decode(source.bytes).replace(/\r\n?/g, '\n');
+
+    if (abnt) {
+      const { pdfEmAbnt } = await import('./abnt');
+      const { doc, paginas } = await pdfEmAbnt(texto, {
+        fonte: String(ctx.options.fonteAbnt ?? 'times') === 'arial' ? 'arial' : 'times',
+        tamanho: Number(ctx.options.size ?? 12),
+        titulo: String(ctx.options.titulo ?? ''),
+        numerarPaginas: ctx.options.numerarPaginas !== false,
+      });
+      await respirar(ctx);
+      const blob = toPdfBlob(await doc.save({ useObjectStreams: true }));
+      outputBytes += blob.size;
+      outputs.push({ name: replaceExtension(source.name, 'pdf'), blob, pages: paginas });
+      continue;
+    }
+
     const paragrafos: ParagrafoDocx[] = texto
       .split('\n')
       .map((linha) => ({ runs: linha.trim() ? [{ texto: linha, negrito: false }] : [] }));
@@ -468,7 +485,15 @@ export async function textToPdf(ctx: RunContext): Promise<RunResult> {
     files: outputs,
     inputBytes,
     outputBytes,
-    notes: ['O texto entra em Helvetica, com quebra de linha automática. Acentuação é preservada.'],
+    notes: abnt
+      ? [
+          'Formatado pela NBR 14724: A4, margens de 3 cm à esquerda e no topo e 2 cm à direita e embaixo, ' +
+            'entrelinha 1,5, recuo de 1,25 cm na primeira linha, texto justificado e número da página no ' +
+            'canto superior direito.',
+          'No arquivo de texto, uma linha começando com "# " vira título de seção e uma com "> " vira citação ' +
+            'longa (recuo de 4 cm, letra menor, espaço simples).',
+        ]
+      : ['O texto entra em Helvetica, com quebra de linha automática. Acentuação é preservada.'],
   };
 }
 

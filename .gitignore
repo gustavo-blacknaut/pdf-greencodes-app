@@ -25,3 +25,6 @@ dist-app/
 
 # Saida do `npm run provar-impressao`: PDFs e PNGs de conferencia.
 .prova-impressao/
+
+# As provas das ferramentas: geradas por scripts/provar-*, nao versionadas.
+provas/

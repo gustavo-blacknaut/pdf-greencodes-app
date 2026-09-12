@@ -1,6 +1,6 @@
 {
   "name": "pdf-greencodes",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -22,7 +22,8 @@
     "motor": "motor\\runtime\\python.exe -m pytest motor/testes -q",
     "preparar-motor": "node scripts/preparar-motor.mjs",
     "conferir-motor": "node scripts/conferir-motor.mjs",
-    "provar-impressao": "node scripts/provar-impressao.mjs"
+    "provar-impressao": "node scripts/provar-impressao.mjs",
+    "provar-tudo": "node scripts/provar-tudo.mjs"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.8.1",
