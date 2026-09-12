@@ -201,6 +201,8 @@ export function defaultOptions(tool: Tool): Record<string, string | number | boo
     values.elementos = '[]';
     values.editor = tool.editor;
   }
+  // A tela de recorte publica a área marcada assim que a imagem abre.
+  if (tool.recorte) values.recorte = '[]';
   return values;
 }
 

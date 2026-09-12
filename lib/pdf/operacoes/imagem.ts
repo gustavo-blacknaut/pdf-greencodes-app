@@ -27,6 +27,7 @@ import {
 import { type Decodificada } from '../../imagem/decodificar';
 import { gravarPixels, pixelsDe } from '../../imagem/canvas';
 import { realcar, recortar, redimensionar } from '../../imagem/lanczos';
+import { limitar, type Recorte } from '../../imagem/recorte';
 import { canvasToBlob } from '../nucleo';
 import { entregar, porArquivo } from './imagem-fila';
 import type { OutputFile, RunContext, RunResult } from '../tipos';
@@ -310,10 +311,42 @@ export async function enhanceImage(ctx: RunContext): Promise<RunResult> {
  * cobrado quando a foto foi tirada. Por isso o padrão aqui é PNG, que é sem
  * perda; quem escolher JPG recebe o aviso.
  */
+/**
+ * As áreas marcadas na tela, por arquivo.
+ *
+ * Texto estragado não derruba o corte: sem marcação válida, a ferramenta cai
+ * nos modos antigos (margem ou proporção), que continuam valendo para quem
+ * chama a operação de fora da tela.
+ */
+function lerRecortes(bruto: unknown): Map<string, Recorte> {
+  const mapa = new Map<string, Recorte>();
+  try {
+    const lista = JSON.parse(String(bruto ?? '[]'));
+    if (!Array.isArray(lista)) return mapa;
+    for (const item of lista) {
+      const medidas = [item?.x, item?.y, item?.largura, item?.altura].map(Number);
+      if (!item?.id || medidas.some((n) => !Number.isFinite(n))) continue;
+      const [x, y, largura, altura] = medidas;
+      if (largura < 1 || altura < 1) continue;
+      mapa.set(String(item.id), { x, y, largura, altura });
+    }
+  } catch {
+    // Marcação ilegível é o mesmo que marcação nenhuma.
+  }
+  return mapa;
+}
+
 export async function cropImage(ctx: RunContext): Promise<RunResult> {
   const formato = formatoValido(ctx.options.formato ?? 'png');
   const qualidade = Math.min(1, Math.max(0.3, Number(ctx.options.qualidade ?? 95) / 100));
-  const modo = String(ctx.options.modo ?? 'margens');
+  /*
+   * A área que a pessoa marcou na tela, uma por arquivo, em pixels da imagem.
+   *
+   * Vem pronta em pixel — e não em porcentagem — justamente para o que sai ser
+   * o retângulo que estava marcado, sem arredondamento no meio do caminho.
+   */
+  const marcadas = lerRecortes(ctx.options.recorte);
+  const modo = marcadas.size ? 'selecao' : String(ctx.options.modo ?? 'margens');
 
   const pct = (chave: string, padrao: number) => Math.min(45, Math.max(0, Number(ctx.options[chave] ?? padrao))) / 100;
   const [esquerda, direita, topo, base] = [
@@ -328,7 +361,11 @@ export async function cropImage(ctx: RunContext): Promise<RunResult> {
     const origem = await pixelsDe(imagem);
     let pedaco;
 
-    if (modo === 'proporcao') {
+    const marcada = marcadas.get(arquivo.id);
+    if (marcada) {
+      const area = limitar(marcada, { largura: origem.largura, altura: origem.altura });
+      pedaco = recortar(origem, area.x, area.y, area.largura, area.altura);
+    } else if (modo === 'proporcao') {
       const [pl, pa] = proporcao.split('x').map(Number);
       const alvo = pl / pa;
       const atual = origem.largura / origem.altura;
@@ -350,9 +387,11 @@ export async function cropImage(ctx: RunContext): Promise<RunResult> {
   });
 
   const notas =
-    modo === 'proporcao'
-      ? [`Aparadas pelo centro até a proporção ${proporcao.replace('x', ':')}.`]
-      : ['Aparadas pelas margens que você informou.'];
+    modo === 'selecao'
+      ? ['Cortadas exatamente na área que você marcou.']
+      : modo === 'proporcao'
+        ? [`Aparadas pelo centro até a proporção ${proporcao.replace('x', ':')}.`]
+        : ['Aparadas pelas margens que você informou.'];
 
   notas.push(
     'O corte em si não perde nada: é cópia de pixel, sem interpolação. A perda que aparece no Paint ' +

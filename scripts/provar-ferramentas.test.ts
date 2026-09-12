@@ -79,6 +79,9 @@ const OPCOES: Partial<Record<string, Record<string, string | number | boolean>>>
   'cabecalho-rodape': { header: 'EXEMPLO', footer: 'PDF.GreenCodes' },
   'cortar-pdf': { top: 10, bottom: 10, left: 10, right: 10 },
   'comprimir-imagem': { alvo: '300 KB' },
+  'cortar-imagem': {
+    recorte: JSON.stringify([{ id: 'foto-exemplo.jpg', x: 100, y: 150, largura: 800, altura: 1000 }]),
+  },
   'marca-dagua-imagem': { texto: 'EXEMPLO' },
   'ler-boleto': { codigo: '34191790010104351004791020150008291070026000' },
   'boleto-para-impressao': { codigo: '34191790010104351004791020150008291070026000' },

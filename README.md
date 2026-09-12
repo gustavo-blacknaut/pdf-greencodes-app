@@ -116,7 +116,7 @@ E a categoria **Imagem**, que roda inteira no navegador — inclusive no site:
 | **Comprimir imagem** | você diz o peso, ela acha a melhor qualidade que cabe |
 | **HEIC para JPG** | a foto que o iPhone grava desde 2017 e quase nada abre |
 | **Ampliar e melhorar** | reamostragem Lanczos, e não o esticador do Paint |
-| **Cortar imagem** | sem a recompressão que o Paint cobra |
+| **Cortar imagem** | você marca a área com o mouse; sai idêntico, sem recomprimir |
 | **Ajustar imagem** | brilho, contraste, saturação, temperatura, nitidez |
 | **Girar e espelhar** | em lote, sem abrir uma por uma |
 | **Remover fundo** | recorte do fundo de cor sólida |

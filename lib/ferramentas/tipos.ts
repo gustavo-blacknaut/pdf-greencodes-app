@@ -87,6 +87,14 @@ export type Tool = {
   board?: BoardMode;
   /** Abre o editor visual sobre a página. */
   editor?: 'completo' | 'assinatura';
+  /**
+   * Troca a fila de arquivos pela tela de marcar a área com o mouse.
+   *
+   * Recortar por porcentagem de margem funciona, mas ninguém enxerga 12% de
+   * margem: enxerga-se o pedaço que fica. A marcação sai em pixels da imagem,
+   * e é ela que o corte recebe.
+   */
+  recorte?: 'imagem';
   cta: string;
   fields: Field[];
 };

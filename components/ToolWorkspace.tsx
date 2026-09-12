@@ -15,21 +15,21 @@ import {
   Zap,
 } from 'lucide-react';
 import { Dropzone } from './Dropzone';
+import { filtrarAceitos, lerNaFila } from './entradaDeArquivos';
 import { ErroDaFerramenta } from './ErroDaFerramenta';
 import { FilaDeArquivos, type ArquivoNaFila } from './FilaDeArquivos';
 import { OptionField } from './OptionField';
 import { PageBoard } from './PageBoard';
 import { useSeletorDeArquivos } from './useSeletorDeArquivos';
 import { PdfEditor } from './PdfEditor';
+import { RecorteDaImagem, type RecorteDeArquivo } from './RecorteDaImagem';
 import { RegistroDeProgresso, type LinhaDoRegistro } from './RegistroDeProgresso';
 import { ResultPanel } from './ResultPanel';
 import { ToolIcon } from './ToolIcon';
 import { atividade } from '@/lib/atividade';
 import { DEFAULT_TTL_MS, SEM_PRAZO, vault } from '@/lib/ephemeral';
 import {
-  abrirNaMemoria,
   desbloquearArquivo,
-  inspectFile,
   runOperation,
   type ElementoEditor,
   type PagePlanItem,
@@ -40,7 +40,6 @@ import {
   AVISO_ARQUIVO_GRANDE,
   LIMITES,
   OperacaoCancelada,
-  pareceSerImagem,
   usarLimitesDoAplicativo,
   validarFila,
 } from '@/lib/pdf/guards';
@@ -190,30 +189,9 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
     (incoming: File[]) => {
       setError(null);
       setSugerirApp(false);
-      // Juntar aceita PDF e imagem ao mesmo tempo, então não dá para tratar
-      // "aceita PDF" como "só aceita PDF".
-      const aceitaPdf = tool.accept.includes('.pdf');
-      const aceitaImagem = tool.accept.some((tipo) => tipo.startsWith('image/'));
-      const aceitaOffice = tool.accept.some((tipo) => ['.docx', '.xlsx', '.pptx'].includes(tipo));
-      const aceitaTxt = tool.accept.includes('.txt');
-      const accepted = incoming.filter((file) => {
-        const name = file.name.toLowerCase();
-        const ehPdf = name.endsWith('.pdf') || file.type === 'application/pdf';
-        const ehImagem = pareceSerImagem(name, file.type);
-        const ehOffice = /\.(docx|xlsx|pptx)$/.test(name);
-        const ehTxt = name.endsWith('.txt');
-        return (
-          (aceitaPdf && ehPdf) || (aceitaImagem && ehImagem) || (aceitaOffice && ehOffice) || (aceitaTxt && ehTxt)
-        );
-      });
-
-      if (!accepted.length) {
-        setError(`Esta ferramenta aceita apenas ${tool.acceptLabel}.`);
-        return;
-      }
-      if (accepted.length < incoming.length) {
-        setError(`${incoming.length - accepted.length} arquivo(s) ignorado(s): formato incompatível.`);
-      }
+      const { aceitos: accepted, recusa } = filtrarAceitos(tool, incoming);
+      if (recusa) setError(recusa);
+      if (!accepted.length) return;
 
       try {
         validarFila(
@@ -250,33 +228,11 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
         return [...current.filter((i) => !substituidos.has(i.id)), ...novos];
       });
 
-      // Pré-carregamento: enquanto o usuário ajusta as opções, já lemos o
-      // arquivo, contamos as páginas e geramos a miniatura.
-      void (async () => {
-        for (const { file, item } of batch) {
-          try {
-            let data = await inspectFile(file, item.id);
-            // A grade de páginas e o editor desenham o documento na hora: o
-            // arquivo grande que ficou no disco precisa vir para a memória.
-            if ((tool.board || tool.editor) && data.caminho && !data.error) data = await abrirNaMemoria(data);
-            setItems((current) =>
-              current.map((existing) =>
-                existing.id === item.id ? { ...existing, loading: false, data, error: data.error } : existing,
-              ),
-            );
-          } catch (e) {
-            setItems((current) =>
-              current.map((existing) =>
-                existing.id === item.id
-                  ? { ...existing, loading: false, error: e instanceof Error ? e.message : 'Falha ao ler o arquivo.' }
-                  : existing,
-              ),
-            );
-          }
-        }
-      })();
+      void lerNaFila(batch, tool, (id, mudanca) =>
+        setItems((current) => current.map((existing) => (existing.id === id ? { ...existing, ...mudanca } : existing))),
+      );
     },
-    [tool.accept, tool.acceptLabel, tool.multiple, tool.board, tool.editor, items],
+    [tool, items],
   );
 
   // Com o resultado na tela, arquivo novo começa outro trabalho — e não entra
@@ -407,6 +363,20 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
     setOptions((current) => ({ ...current, elementos: JSON.stringify(elementos) }));
   }, []);
 
+  const handleRecortesChange = useCallback((recortes: RecorteDeArquivo[]) => {
+    setOptions((current) => ({ ...current, recorte: JSON.stringify(recortes) }));
+  }, []);
+
+  /** A marcação volta de texto para lista, que é como a tela trabalha. */
+  const recortesMarcados = useMemo<RecorteDeArquivo[]>(() => {
+    try {
+      const lista = JSON.parse(String(options.recorte ?? '[]'));
+      return Array.isArray(lista) ? lista : [];
+    } catch {
+      return [];
+    }
+  }, [options.recorte]);
+
   async function run() {
     if (!canRun) return;
     if (resultIdRef.current) {
@@ -523,17 +493,20 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
       const semODocumento = { ...atuais };
       delete semODocumento.plan;
       delete semODocumento.elementos;
+      // A área marcada é do arquivo que saiu: fica na imagem seguinte senão.
+      delete semODocumento.recorte;
       return semODocumento;
     });
   }
 
   /** Volta as opções ao padrão da ferramenta, sem mexer nos arquivos. */
   function resetarOpcoes() {
-    const { plan, elementos } = options;
+    const { plan, elementos, recorte } = options;
     setOptions({
       ...defaultOptions(tool),
       ...(plan !== undefined && { plan }),
       ...(elementos !== undefined && { elementos }),
+      ...(recorte !== undefined && { recorte }),
     });
   }
 
@@ -737,7 +710,17 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
             tool.semArquivo ? 'mx-auto max-w-2xl' : 'lg:grid-cols-[1.15fr_1fr]',
           )}
         >
-          {!tool.semArquivo && (
+          {/* Marcar a área com o mouse toma o lugar da fila: a imagem inteira
+              na tela é o que a pessoa precisa ver, e o nome do arquivo cabe
+              na tirinha de baixo. */}
+          {tool.recorte && ready.length > 0 ? (
+            <RecorteDaImagem
+              arquivos={ready.map((item) => item.data!)}
+              recortes={recortesMarcados}
+              onRecortes={handleRecortesChange}
+              onTrocarArquivo={reset}
+            />
+          ) : !tool.semArquivo ? (
           <FilaDeArquivos
             tool={tool}
             items={items}
@@ -754,7 +737,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
             onLendo={marcarLeitura}
             onFalha={descartarMarcadores}
           />
-          )}
+          ) : null}
 
           {/* Opções + ação */}
           <div className="card min-w-0 space-y-5 p-4 sm:p-5 lg:sticky lg:top-24">
