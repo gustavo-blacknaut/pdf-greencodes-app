@@ -317,6 +317,45 @@ class TestOtimizar:
         # 10 cm a 150 DPI sao 590 px; o que importa e nao ter sobrado milhares.
         assert largura <= 700, f"a foto continuou com {largura} px"
 
+    def test_em_300_dpi_encolhe_sem_tirar_resolucao_de_impressao(self, rodar, tmp_path):
+        """300 DPI e o padrao porque encolhe muito e nao custa nada no papel.
+
+        E a resposta a reclamacao certa: "150 e claro que diminui, vai piorar
+        a qualidade". Diminuir so serve se o que sai ainda imprime.
+        """
+        arte = pymupdf.open()
+        tela = arte.new_page(width=600, height=800)
+        for i in range(120):
+            cor = ((i * 37) % 255 / 255, (i * 71) % 255 / 255, (i * 13) % 255 / 255)
+            tela.draw_circle((20 + (i * 53) % 560, 20 + (i * 29) % 760), 15 + i % 30, color=cor, fill=cor)
+        pixels = tela.get_pixmap(matrix=pymupdf.Matrix(4, 4))
+        arte.close()
+
+        origem = str(tmp_path / "folha-pesada.pdf")
+        doc = pymupdf.open()
+        pagina = doc.new_page(width=283, height=425)  # 10 x 15 cm
+        pagina.insert_image(pagina.rect, pixmap=pixels)
+        doc.save(origem, deflate=True)
+        doc.close()
+        del pixels
+
+        destino = str(tmp_path / "menor.pdf")
+        resultado = rodar("comprimir", [origem], {"modo": "imagens", "dpi": 300, "qualidade": 82}, saida=destino)
+
+        # A arte de teste e desenho liso, que o Flate ja comprime bem; numa
+        # foto de verdade a queda e muito maior (9,6 MB -> 696 KB no arquivo
+        # que motivou isto). O que importa aqui e que encolhe e que a
+        # resolucao de impressao fica de pe.
+        assert resultado["bytesSaida"] < resultado["bytesEntrada"] * 0.75, (
+            f"300 DPI tinha que encolher: {resultado['bytesEntrada']} -> {resultado['bytesSaida']}"
+        )
+        doc = pymupdf.open(destino)
+        largura = doc.extract_image(doc[0].get_images()[0][0])["width"]
+        doc.close()
+        # 10 cm a 300 DPI sao 1181 px: a foto continua imprimivel, e nao vira
+        # a de 590 px que o nivel de tela entregaria.
+        assert largura >= 1000, f"desceu demais: {largura} px para 10 cm"
+
     def test_comprimir_nunca_entrega_arquivo_maior(self, criar_pdf, rodar, tmp_path):
         # So texto: redesenhar deixa maior. O que sai tem que ser o original.
         origem = criar_pdf(paginas=2)

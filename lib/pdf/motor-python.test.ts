@@ -136,8 +136,18 @@ describe('tradução das opções', () => {
     expect(await opcoesEnviadas('compress', { level: 'sem-perda' })).toEqual({ redesenhar: false });
   });
 
-  it('recomendada, o padrão, encolhe só as fotos a 150 DPI', async () => {
-    expect(await opcoesEnviadas('compress', {})).toEqual({ modo: 'imagens', dpi: 150, qualidade: 75 });
+  it('o padrão é 300 DPI: a resolução em que se imprime, e não a de tela', async () => {
+    // 150 encolhe mais, mas amolece a foto no papel — e escolher isso pela
+    // pessoa é decidir sozinho estragar o arquivo dela.
+    expect(await opcoesEnviadas('compress', {})).toEqual({ modo: 'imagens', dpi: 300, qualidade: 82 });
+    expect(await opcoesEnviadas('compress', { level: 'impressao' })).toEqual({ modo: 'imagens', dpi: 300, qualidade: 82 });
+  });
+
+  it('alta guarda 600 DPI, com o JPEG mais fino', async () => {
+    expect(await opcoesEnviadas('compress', { level: 'alta' })).toEqual({ modo: 'imagens', dpi: 600, qualidade: 88 });
+  });
+
+  it('tela e e-mail continuam em 150 DPI, quando alguém pede', async () => {
     expect(await opcoesEnviadas('compress', { level: 'recomendada' })).toEqual({ modo: 'imagens', dpi: 150, qualidade: 75 });
   });
 

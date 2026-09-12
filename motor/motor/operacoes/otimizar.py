@@ -72,14 +72,26 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
         # por cima do resultado, e a nota diz por que.
         shutil.copyfile(origem, destino)
         bytes_saida = bytes_entrada
-        notas.append(
-            "Este PDF ja estava no menor tamanho que da para alcancar sem redesenhar. "
-            "O resultado nao ficou menor, entao o original foi mantido. "
-            "Se precisar mesmo de menos, o nivel maxima redesenha as paginas — e ai o texto deixa de ser texto."
-            if not redesenhar
-            else "Nem redesenhando o arquivo ficou menor: as imagens ja estavam bem compactadas. "
-            "O original foi mantido."
-        )
+        if redesenhar:
+            notas.append(
+                "Nem redesenhando o arquivo ficou menor: as imagens ja estavam bem compactadas. "
+                "O original foi mantido."
+            )
+        elif so_imagens:
+            notas.append(
+                f"As fotos deste PDF ja estao em {dpi} DPI ou menos, entao nao havia o que reduzir sem "
+                "estragar. O original foi mantido. Para um arquivo de tela ou e-mail, escolha uma "
+                "resolucao menor."
+            )
+        else:
+            # Sem perda nao toca em foto nenhuma: e quase sempre por isso que
+            # um PDF de foto volta do mesmo tamanho. Mandar o caminho certo
+            # vale mais do que dizer que ja estava no menor possivel.
+            notas.append(
+                "Sem perda so reorganiza a estrutura, e neste arquivo nao havia folga: o original foi "
+                "mantido. Se o peso esta nas fotos, escolha a resolucao de impressao (300 DPI) — ela "
+                "costuma cortar muito e nao tira nada que o papel mostre."
+            )
     elif so_imagens:
         notas.append(
             "As fotos foram reduzidas e recomprimidas. Texto, linhas e vetores continuam como estavam: "

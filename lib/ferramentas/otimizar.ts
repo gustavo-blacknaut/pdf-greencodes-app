@@ -27,12 +27,17 @@ export const OTIMIZAR: Tool[] = [
       {
         key: 'level',
         type: 'select',
-        label: 'Nível',
-        default: 'recomendada',
+        label: 'Resolução das fotos',
+        // 300 DPI é o padrão porque é a resolução em que a gráfica imprime:
+        // encolhe muito e não tira nada que o papel mostrasse. Descer para
+        // 150 sem pedir seria decidir sozinho estragar a foto de alguém.
+        default: 'impressao',
         options: [
-          { value: 'recomendada', label: 'Recomendada', hint: 'fotos a 150 DPI · o texto continua texto' },
-          { value: 'forte', label: 'Forte', hint: 'fotos a 100 DPI · menor, ainda com texto de verdade' },
-          { value: 'sem-perda', label: 'Sem perda', hint: 'não altera nem um pixel; reduz menos' },
+          { value: 'impressao', label: 'Impressão · 300 DPI', hint: 'a resolução em que se imprime; a foto não perde nada no papel' },
+          { value: 'alta', label: 'Alta · 600 DPI', hint: 'só tira o exagero; para reimpressão e arquivo de cliente' },
+          { value: 'recomendada', label: 'Tela e e-mail · 150 DPI', hint: 'o menor para ler na tela; no papel a foto amolece' },
+          { value: 'forte', label: 'Forte · 100 DPI', hint: 'anexo de e-mail apertado; o texto continua texto' },
+          { value: 'sem-perda', label: 'Sem perda', hint: 'não altera nem um pixel; reduz só o que dá sem tocar na foto' },
           { value: 'maxima', label: 'Máxima', hint: '110 DPI · as páginas viram imagem; o menor possível' },
         ],
       },

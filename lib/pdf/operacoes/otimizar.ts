@@ -30,7 +30,12 @@ import { recomprimirFotos } from '../recomprimir';
  * explícita, com aviso na tela.
  */
 export const COMPRESSION_PRESETS = {
-  // O padrão: só as fotos encolhem, e o texto continua texto.
+  // O padrão: 300 DPI, a resolução em que a gráfica imprime. Encolhe muito e
+  // não tira nada que o papel mostrasse — descer para 150 sem pedir seria
+  // decidir sozinho estragar a foto de alguém.
+  impressao: { dpi: 0, quality: 0, fotos: { dpi: 300, quality: 0.82 } },
+  alta: { dpi: 0, quality: 0, fotos: { dpi: 600, quality: 0.88 } },
+  // Para tela e e-mail: menor, mas no papel a foto amolece.
   recomendada: { dpi: 0, quality: 0, fotos: { dpi: 150, quality: 0.75 } },
   forte: { dpi: 0, quality: 0, fotos: { dpi: 100, quality: 0.6 } },
   'sem-perda': { dpi: 0, quality: 0, fotos: null },
@@ -43,8 +48,8 @@ export type CompressionLevel = keyof typeof COMPRESSION_PRESETS;
 
 export async function compress(ctx: RunContext): Promise<RunResult> {
   const { PDFDocument } = await loadPdfLib();
-  const level = (ctx.options.level as CompressionLevel) ?? 'recomendada';
-  const preset = COMPRESSION_PRESETS[level] ?? COMPRESSION_PRESETS.recomendada;
+  const level = (ctx.options.level as CompressionLevel) ?? 'impressao';
+  const preset = COMPRESSION_PRESETS[level] ?? COMPRESSION_PRESETS.impressao;
   const notes: string[] = [];
   const outputs: OutputFile[] = [];
   const canvas = document.createElement('canvas');

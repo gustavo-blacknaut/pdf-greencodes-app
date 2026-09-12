@@ -58,6 +58,20 @@ function numero(valor: unknown, padrao: number): number {
  * uma coisa que o TypeScript não conseguia fazer de jeito nenhum: gravar
  * DeviceCMYK de verdade, para o K100 chegar na chapa como K100.
  */
+/**
+ * A resolução de cada nível, e a qualidade do JPEG que vai junto.
+ *
+ * 300 DPI é onde a gráfica imprime: encolher além disso é decidir estragar a
+ * foto de alguém. 150 existe para tela e e-mail, e diz isso no nome.
+ */
+const FOTOS_POR_NIVEL: Record<string, { dpi: number; qualidade: number }> = {
+  alta: { dpi: 600, qualidade: 88 },
+  impressao: { dpi: 300, qualidade: 82 },
+  recomendada: { dpi: 150, qualidade: 75 },
+  equilibrada: { dpi: 150, qualidade: 75 },
+  forte: { dpi: 100, qualidade: 60 },
+};
+
 const NO_PYTHON: Record<string, Traducao> = {
   compress: {
     acao: 'comprimir',
@@ -66,14 +80,13 @@ const NO_PYTHON: Record<string, Traducao> = {
     // nesse caso o TypeScript continua respondendo.
     aceita: (ctx) => ctx.files.length === 1 && ctx.options.juntar !== true,
     opcoes: (o) => {
-      const nivel = String(o.level ?? 'recomendada');
+      const nivel = String(o.level ?? 'impressao');
       if (nivel === 'sem-perda') return { redesenhar: false };
       if (nivel === 'maxima') return { redesenhar: true, nivel: 'muito' };
-      // Recomendada e forte encolhem só as fotos: o texto continua texto.
-      // "equilibrada" era o nome antigo do meio-termo.
-      return nivel === 'forte'
-        ? { modo: 'imagens', dpi: 100, qualidade: 60 }
-        : { modo: 'imagens', dpi: 150, qualidade: 75 };
+      // Os outros encolhem só as fotos: o texto continua texto. A qualidade
+      // do JPEG sobe junto com a resolução — quem guarda 600 DPI não quer
+      // marca de compressão na foto. "equilibrada" era o nome antigo do meio.
+      return { modo: 'imagens', ...FOTOS_POR_NIVEL[nivel] ?? FOTOS_POR_NIVEL.impressao };
     },
   },
 
