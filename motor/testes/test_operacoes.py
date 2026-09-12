@@ -270,6 +270,7 @@ class TestOtimizar:
         destino = str(tmp_path / "menor.pdf")
         resultado = rodar("comprimir", [origem], {"modo": "imagens", "dpi": 150, "qualidade": 75}, saida=destino)
 
+
         assert resultado["bytesSaida"] < resultado["bytesEntrada"] * 0.5, (
             f"a compressao recomendada tinha que cortar pelo menos metade: {resultado['bytesEntrada']} -> {resultado['bytesSaida']}"
         )
@@ -278,6 +279,43 @@ class TestOtimizar:
         largura = doc.extract_image(doc[0].get_images()[0][0])["width"]
         assert largura < 1300, f"a foto devia ter descido para uns 150 DPI, e ficou com {largura} px"
         doc.close()
+
+    def test_encolhe_a_imagem_sem_perda_que_o_mupdf_deixa_passar(self, rodar, tmp_path):
+        """O defeito que este teste prende: 9,6 MB que voltavam iguais.
+
+        Uma folha de fotos com imagem sem perda e perfil ICC — do jeito que
+        muito programa grava — passava batido pelo `rewrite_images`, e a
+        compressao devolvia o arquivo do mesmo tamanho dizendo que ja estava
+        no menor possivel. Quase 2000 DPI de foto numa folha 10x15.
+        """
+        arte = pymupdf.open()
+        tela = arte.new_page(width=600, height=800)
+        for i in range(120):
+            cor = ((i * 37) % 255 / 255, (i * 71) % 255 / 255, (i * 13) % 255 / 255)
+            tela.draw_circle((20 + (i * 53) % 560, 20 + (i * 29) % 760), 15 + i % 30, color=cor, fill=cor)
+        # Sem perda e enorme: 4x o tamanho da pagina, como o desenho antigo fazia.
+        pixels = tela.get_pixmap(matrix=pymupdf.Matrix(4, 4))
+        arte.close()
+
+        origem = str(tmp_path / "folha-pesada.pdf")
+        doc = pymupdf.open()
+        pagina = doc.new_page(width=283, height=425)  # 10 x 15 cm
+        pagina.insert_image(pagina.rect, pixmap=pixels)
+        doc.save(origem, deflate=True)
+        doc.close()
+        del pixels
+
+        destino = str(tmp_path / "menor.pdf")
+        resultado = rodar("comprimir", [origem], {"modo": "imagens", "dpi": 150, "qualidade": 75}, saida=destino)
+
+        assert resultado["bytesSaida"] < resultado["bytesEntrada"] * 0.3, (
+            f"a foto sem perda tinha que encolher muito: {resultado['bytesEntrada']} -> {resultado['bytesSaida']}"
+        )
+        doc = pymupdf.open(destino)
+        largura = doc.extract_image(doc[0].get_images()[0][0])["width"]
+        doc.close()
+        # 10 cm a 150 DPI sao 590 px; o que importa e nao ter sobrado milhares.
+        assert largura <= 700, f"a foto continuou com {largura} px"
 
     def test_comprimir_nunca_entrega_arquivo_maior(self, criar_pdf, rodar, tmp_path):
         # So texto: redesenhar deixa maior. O que sai tem que ser o original.

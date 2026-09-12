@@ -174,6 +174,28 @@ def na_proporcao(area: pymupdf.Rect, proporcao: float) -> pymupdf.Rect:
     return pymupdf.Rect(area.x0, meio_y - altura / 2, area.x1, meio_y + altura / 2)
 
 
+def _desenhar_a_foto(
+    pagina: pymupdf.Page,
+    area: pymupdf.Rect,
+    alvo_mm: float,
+    dpi: int,
+) -> pymupdf.Pixmap:
+    """Desenha o recorte no tamanho que a casa precisa, e nada alem disso.
+
+    A conta e pelo tamanho impresso: uma foto de 100 mm a 300 DPI pede 1181
+    pixels de largura. Antes o desenho saia na resolucao da pagina da foto, e
+    a pagina de uma imagem vale um ponto por pixel — entao pedir 300 DPI
+    multiplicava a foto por 4,17. Uma foto de 1843 px virava 7681 px, sem um
+    detalhe novo: uma folha 10x15 saia com 9,6 MB de pixel inventado.
+
+    Nunca amplia. Mais pixel que o original nao e mais detalhe; e so arquivo
+    maior e impressao mais lenta.
+    """
+    alvo_px = max(alvo_mm, 1) / 25.4 * max(dpi, 1)
+    escala = min(alvo_px / max(area.width, 1), 1.0)
+    return pagina.get_pixmap(clip=area, matrix=pymupdf.Matrix(escala, escala))
+
+
 def _celula(x_mm: float, y_mm: float, largura_mm: float, altura_mm: float) -> pymupdf.Rect:
     """Um retângulo em milímetros, devolvido em pontos."""
     return pymupdf.Rect(
@@ -275,7 +297,23 @@ def montar_folha(
         # esticar para preencher a casa. É a "mágica" de caber sem cortar —
         # o preço é que, se a proporção não bater, a imagem distorce.
         area_final = area if esticar else na_proporcao(area, alvo)
-        pixels = pagina_da_foto.get_pixmap(clip=area_final, dpi=dpi)
+        # Quanto a foto vai medir no papel, de verdade: e dessa medida que sai
+        # a resolucao do desenho. Deitada, a largura da imagem cai na altura
+        # da casa; com moldura, o que conta e a janela de dentro.
+        if moldura:
+            alvo_mm = moldura["largura"]
+        elif girado:
+            alvo_mm = altura_foto
+        else:
+            alvo_mm = largura_foto
+        pixels = _desenhar_a_foto(pagina_da_foto, area_final, alvo_mm, dpi)
+        # A casa e preenchida inteira (keep_proportion=False): o recorte ja
+        # saiu na proporcao dela, e o arredondamento de pixel do desenho
+        # deixava um fio de papel branco em dois lados.
+        # JPEG, e nao o mapa de pixels cru: foto em PNG dentro do PDF e o que
+        # fazia uma folha 10x15 sair com 9,6 MB. A 92 a diferenca nao sai no
+        # papel, e o arquivo cai para menos de um decimo.
+        foto = pixels.tobytes("jpeg", jpg_quality=92)
         giro = 90 if girado else 0
 
         folha = pymupdf.open()
@@ -309,9 +347,9 @@ def montar_folha(
                         moldura["largura"],
                         moldura["altura"],
                     )
-                    pagina.insert_image(dentro, pixmap=pixels, rotate=giro)
+                    pagina.insert_image(dentro, stream=foto, rotate=giro, keep_proportion=False)
                 else:
-                    pagina.insert_image(caixa, pixmap=pixels, rotate=giro)
+                    pagina.insert_image(caixa, stream=foto, rotate=giro, keep_proportion=False)
 
                 if modelo.get("redondo"):
                     # Guia de corte redondo: um círculo fino por cima marca

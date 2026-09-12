@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pymupdf
 import pytest
 
@@ -143,6 +145,63 @@ class TestFolhaDeFotos:
         assert por_id["13x18"]["papelSugerido"] == "13x18"
         assert por_id["15x20"]["papelSugerido"] == "15x20"
         assert por_id["3x4"]["papelSugerido"] is None
+
+
+class TestResolucaoDaFolha:
+    """O defeito que estes testes prendem: folha 10x15 saindo com 9,6 MB.
+
+    O desenho saia na resolucao da pagina da foto — e a pagina de uma imagem
+    vale um ponto por pixel —, entao pedir 300 DPI multiplicava a foto por
+    4,17 e gravava sem perda. Pixel inventado, arquivo gigante, e a compressao
+    depois nao dava conta.
+    """
+
+    def test_a_foto_sai_na_resolucao_do_papel_e_nao_da_imagem(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "folha.pdf")
+        # Uma foto grande: 2000 px de largura para uma casa de 50 mm.
+        rodar(
+            "folha-de-fotos",
+            [criar_foto(largura=2000, altura=3000)],
+            {"modelo": "5x7", "papel": "10x15", "dpi": 300},
+            saida=destino,
+        )
+
+        doc = pymupdf.open(destino)
+        imagens = doc[0].get_images(full=True)
+        assert imagens, "a folha saiu sem imagem"
+        info = doc.extract_image(imagens[0][0])
+        doc.close()
+
+        # 50 mm a 300 DPI sao 591 px. Com folga de arredondamento, mas nada
+        # perto dos 2460 que o desenho pela pagina daria.
+        assert 560 <= info["width"] <= 620, f"resolucao errada: {info['width']} px"
+        assert info["ext"] == "jpeg", f"a foto foi gravada como {info['ext']}, e nao JPEG"
+
+    def test_nunca_amplia_alem_do_original(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "folha.pdf")
+        # Foto pequena numa casa grande: ampliar so inventaria pixel.
+        rodar(
+            "folha-de-fotos",
+            [criar_foto(largura=300, altura=400)],
+            {"modelo": "10x15", "papel": "10x15", "dpi": 300},
+            saida=destino,
+        )
+
+        doc = pymupdf.open(destino)
+        info = doc.extract_image(doc[0].get_images(full=True)[0][0])
+        doc.close()
+        assert info["width"] <= 320, f"ampliou para {info['width']} px"
+
+    def test_a_folha_nao_passa_de_um_megabyte(self, criar_foto, rodar, tmp_path):
+        destino = str(tmp_path / "folha.pdf")
+        rodar(
+            "folha-de-fotos",
+            [criar_foto(largura=2500, altura=3500)],
+            {"modelo": "3x4", "papel": "10x15", "dpi": 300},
+            saida=destino,
+        )
+        tamanho = os.path.getsize(destino)
+        assert tamanho < 1_000_000, f"a folha saiu com {tamanho / 1024 / 1024:.1f} MB"
 
 
 class TestRevelacaoAvulsa:

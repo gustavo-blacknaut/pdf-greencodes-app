@@ -99,6 +99,63 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
     }
 
 
+def _encolher_fotos_grandes(entrada: pymupdf.Document, dpi: int, qualidade: int) -> int:
+    """Redesenha à mão a foto que o MuPDF nao encolheu, e devolve quantas trocou.
+
+    O `rewrite_images` resolve quase tudo, mas passa batido em imagem sem
+    perda com perfil ICC — que e exatamente o que muito programa grava. Um
+    caso real: uma folha 10x15 com uma imagem de 7681 x 10753 sem perda, quase
+    2000 DPI no papel, 9,6 MB, e a compressao devolvia o arquivo igualzinho
+    dizendo que ja estava no menor tamanho. Nao estava.
+
+    Aqui a conta e simples: quanto a imagem mede impressa e quantos pixels
+    isso pede no DPI pedido. O que passa disso e reduzido e regravado em JPEG,
+    e so fica se tiver ficado menor de verdade.
+    """
+    trocadas = 0
+    limiar = dpi * 1.2
+
+    for pagina in entrada:
+        for imagem in pagina.get_images(full=True):
+            xref = imagem[0]
+            # Imagem com mascara de transparencia fica quieta: o JPEG nao
+            # guarda alfa, e trocar deixaria fundo preto no lugar do vazado.
+            if imagem[1]:
+                continue
+
+            caixas = pagina.get_image_rects(xref)
+            if not caixas:
+                continue
+            largura_pol = max(caixa.width for caixa in caixas) / 72
+            if largura_pol <= 0:
+                continue
+
+            try:
+                pix = pymupdf.Pixmap(entrada, xref)
+            except Exception:  # noqa: BLE001
+                continue
+            if pix.alpha or pix.n not in (1, 3):
+                continue
+
+            atual = pix.width / largura_pol
+            if atual <= limiar:
+                continue
+
+            alvo_l = max(1, round(largura_pol * dpi))
+            alvo_a = max(1, round(pix.height * alvo_l / pix.width))
+            antigo = len(entrada.xref_stream_raw(xref) or b"")
+            menor = pymupdf.Pixmap(pix, alvo_l, alvo_a, None)
+            jpeg = menor.tobytes("jpeg", jpg_quality=qualidade)
+            del pix, menor
+
+            if antigo and len(jpeg) >= antigo:
+                continue
+            pagina.replace_image(xref, stream=jpeg)
+            trocadas += 1
+
+    return trocadas
+
+
 def _recomprimindo_imagens(pedido: Pedido, entrada: pymupdf.Document) -> None:
     """Encolhe as fotos que passam da resolucao pedida e recomprime em JPEG.
 
@@ -142,6 +199,10 @@ def _recomprimindo_imagens(pedido: Pedido, entrada: pymupdf.Document) -> None:
     opcoes.bitonal_image_subsample_threshold = max(limiar, 360)
     opcoes.bitonal_image_subsample_to = max(dpi, 300)
     entrada.rewrite_images(options=opcoes)
+    # E o que o MuPDF deixou passar: imagem sem perda com perfil ICC, que e o
+    # caso da folha de fotos e de meio programa de foto por ai.
+    pedido.andamento(0.5, "Reduzindo as fotos grandes")
+    _encolher_fotos_grandes(entrada, dpi, qualidade)
     pedido.andamento(0.7, "Enxugando as fontes")
     try:
         # Fonte embutida inteira pesa centenas de KB; subconjunto so leva os
