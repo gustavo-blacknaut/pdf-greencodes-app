@@ -34,7 +34,8 @@ import {
 import { ocr, pdfToText, pdfToWord } from './operacoes/texto';
 import { crop, edit, flatten, headerFooter, pageNumbers, resize, watermark } from './operacoes/editar';
 import { protect, setMetadata, stripMetadata, unlock } from './operacoes/seguranca';
-import { businessCards, cropMarks, labels, mirror, repeatPages, sequentialNumbering } from './operacoes/grafica';
+import { cropMarks, mirror, repeatPages, sequentialNumbering } from './operacoes/grafica';
+import { businessCards, labels } from './operacoes/etiquetas';
 import { preflight } from './operacoes/verificar';
 import { boletoParaImpressao, readBoleto } from './operacoes/boleto';
 import { compressImage, convertImage, cropImage, enhanceImage, heicToImage, resizeImage } from './operacoes/imagem';

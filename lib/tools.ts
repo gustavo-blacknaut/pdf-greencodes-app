@@ -9,6 +9,7 @@
 import { CODIGOS } from './ferramentas/codigos';
 import { CONVERTER } from './ferramentas/converter';
 import { EDITAR } from './ferramentas/editar';
+import { ETIQUETAS } from './ferramentas/etiquetas';
 import { GRAFICA } from './ferramentas/grafica';
 import { BOLETO } from './ferramentas/boleto';
 import { IMAGEM } from './ferramentas/imagem';
@@ -109,6 +110,7 @@ const CATALOGO = [
   ...ORGANIZAR,
   ...EDITAR,
   ...GRAFICA,
+  ...ETIQUETAS,
   ...IMAGEM,
   ...CODIGOS,
   ...BOLETO,

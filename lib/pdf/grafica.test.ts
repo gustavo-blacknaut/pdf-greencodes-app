@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { runOperation, type LoadedFile, type RunContext } from './engine';
-import { CANTOS, calcularGrade } from './operacoes/grafica';
+import { CANTOS } from './operacoes/grafica';
+import { calcularGrade } from './operacoes/etiquetas';
 import { loadPdfLib } from './lazy';
 
 const PT_POR_MM = 72 / 25.4;
@@ -147,6 +148,101 @@ describe('etiquetas', () => {
   it('junta páginas diferentes na mesma folha no modo sequência', async () => {
     const resultado = await runOperation('labels', ctx(await pdfDe(8, 142, 85), { larguraMm: 50, alturaMm: 30, modo: 'sequencia' }));
     expect((await abrir(resultado.files[0].blob)).getPageCount()).toBe(1);
+  });
+});
+
+/**
+ * As folhas da Pimaco.
+ *
+ * Aqui a grade não é calculada: ela vem picotada no papel, e a arte tem que
+ * cair exatamente em cima. Meio milímetro de conta própria imprime metade do
+ * texto no picote, e isso só aparece com a folha de etiqueta já gasta — por
+ * isso o teste confere a posição de cada etiqueta, e não só a contagem.
+ */
+describe('etiquetas em folha Pimaco', () => {
+  /** O fluxo de desenho da primeira página, em texto. */
+  async function conteudo(blob: Blob): Promise<string> {
+    const { inflateSync } = await import('node:zlib');
+    const doc = await abrir(blob);
+    const pagina = doc.getPage(0);
+    const fluxos = pagina.node.Contents() as unknown as { asArray?: () => unknown[] };
+    const refs = fluxos?.asArray ? fluxos.asArray() : [fluxos];
+    let texto = '';
+    for (const ref of refs) {
+      const stream = doc.context.lookup(ref as never) as unknown as {
+        getContents(): Uint8Array;
+        dict: { toString(): string };
+      };
+      const bruto = Buffer.from(stream.getContents());
+      const comprimido = stream.dict.toString().includes('FlateDecode');
+      texto += (comprimido ? inflateSync(bruto) : bruto).toString('latin1');
+    }
+    return texto;
+  }
+
+  /** Onde cada desenho foi assentado, lido do fluxo da página. */
+  async function posicoes(blob: Blob): Promise<{ x: number; y: number }[]> {
+    const texto = await conteudo(blob);
+    // O pdf-lib escreve giro e inclinação junto, e os dois viram a matriz
+    // neutra em 0,0: só interessa a translação de verdade.
+    return [...texto.matchAll(/1 0 0 1 ([\d.-]+) ([\d.-]+) cm/g)]
+      .map((m) => ({ x: mm(Number(m[1])), y: mm(Number(m[2])) }))
+      .filter((p) => p.x !== 0 || p.y !== 0);
+  }
+
+  it('a 6180 põe 30 por folha, na margem e no passo do fabricante', async () => {
+    const resultado = await runOperation('labels', ctx(await pdfDe(1, 189, 72), { modelo: '6180' }));
+    const doc = await abrir(resultado.files[0].blob);
+
+    expect(mm(doc.getPage(0).getWidth())).toBeCloseTo(215.9, 0);
+    expect(mm(doc.getPage(0).getHeight())).toBeCloseTo(279.4, 0);
+    expect(resultado.notes.join(' ')).toMatch(/3 x 10 = 30 por folha/);
+
+    const onde = await posicoes(resultado.files[0].blob);
+    expect(onde).toHaveLength(30);
+    // Três colunas: 4,8 mm da esquerda, com passo de 69,85.
+    const colunas = [...new Set(onde.map((p) => p.x))].sort((a, b) => a - b);
+    expect(colunas).toHaveLength(3);
+    expect(colunas[0]).toBeCloseTo(4.8, 0);
+    expect(colunas[1] - colunas[0]).toBeCloseTo(69.9, 0);
+    // A primeira linha começa 12,7 mm abaixo do topo.
+    const topo = Math.max(...onde.map((p) => p.y));
+    expect(279.4 - (topo + 25.4)).toBeCloseTo(12.7, 0);
+  });
+
+  it('a 6187 põe 80 por folha', async () => {
+    const resultado = await runOperation('labels', ctx(await pdfDe(1, 126, 36), { modelo: '6187' }));
+    expect(resultado.notes.join(' ')).toMatch(/4 x 20 = 80 por folha/);
+    expect(await posicoes(resultado.files[0].blob)).toHaveLength(80);
+  });
+
+  it('a 6093 é redonda: o desenho sai recortado no círculo', async () => {
+    const resultado = await runOperation('labels', ctx(await pdfDe(1, 120, 120), { modelo: '6093' }));
+    const texto = await conteudo(resultado.files[0].blob);
+
+    expect(resultado.notes.join(' ')).toMatch(/4 x 6 = 24 por folha/);
+    // Um recorte por etiqueta, cada um fechado com W n.
+    expect(texto.match(/W\s*\n?\s*n/g) ?? []).toHaveLength(24);
+    expect(texto.match(/c\s/g)?.length ?? 0).toBeGreaterThanOrEqual(24 * 4);
+  });
+
+  it('o deslocamento move a folha inteira, para acertar a impressora', async () => {
+    const arte = await pdfDe(1, 189, 72);
+    const reto = await posicoes((await runOperation('labels', ctx(arte, { modelo: '6180' }))).files[0].blob);
+    const movido = await posicoes(
+      (await runOperation('labels', ctx(arte, { modelo: '6180', deslocaXmm: 2, deslocaYmm: 3 }))).files[0].blob,
+    );
+    expect(movido[0].x - reto[0].x).toBeCloseTo(2, 0);
+    // Para baixo no papel é para baixo no eixo do PDF, que conta ao contrário.
+    expect(reto[0].y - movido[0].y).toBeCloseTo(3, 0);
+  });
+
+  it('a medida livre continua calculando a grade', async () => {
+    const resultado = await runOperation(
+      'labels',
+      ctx(await pdfDe(1, 142, 85), { modelo: 'livre', larguraMm: 50, alturaMm: 30, espacoMm: 0, margemMm: 5 }),
+    );
+    expect(resultado.notes.join(' ')).toMatch(/4 x 9 = 36 por folha/);
   });
 });
 

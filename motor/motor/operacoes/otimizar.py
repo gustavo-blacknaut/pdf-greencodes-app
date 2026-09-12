@@ -74,7 +74,8 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
         bytes_saida = bytes_entrada
         notas.append(
             "Este PDF ja estava no menor tamanho que da para alcancar sem redesenhar. "
-            "O resultado nao ficou menor, entao o original foi mantido."
+            "O resultado nao ficou menor, entao o original foi mantido. "
+            "Se precisar mesmo de menos, o nivel maxima redesenha as paginas — e ai o texto deixa de ser texto."
             if not redesenhar
             else "Nem redesenhando o arquivo ficou menor: as imagens ja estavam bem compactadas. "
             "O original foi mantido."

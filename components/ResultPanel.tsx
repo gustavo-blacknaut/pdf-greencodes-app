@@ -146,7 +146,16 @@ export function ResultPanel({
 
   const entry = vault.get(entryId);
   const savedRatio = result.inputBytes > 0 ? 1 - result.outputBytes / result.inputBytes : 0;
-  const shrank = Boolean(result.highlightSavings) && savedRatio > 0.005;
+  /*
+   * A comparação aparece sempre que a ferramenta era para encolher, mesmo
+   * quando não encolheu nada.
+   *
+   * Escondê-la no zero foi um erro: quem comprimiu ficou sem número nenhum na
+   * tela e concluiu que o programa não fez nada. O número honesto — "0%", com
+   * a nota dizendo por quê — informa; a ausência dele só confunde.
+   */
+  const comparar = Boolean(result.highlightSavings) && result.inputBytes > 0;
+  const shrank = comparar && savedRatio > 0.005;
   const anyDownloaded = Boolean(entry && entry.downloaded.size > 0);
 
   if (!entry) {
@@ -326,11 +335,15 @@ export function ResultPanel({
         ) : null}
       </div>
 
-      {shrank && (
+      {comparar && (
         <div className="grid grid-cols-3 divide-x border-b text-center">
           <Stat label="Antes" value={formatBytes(result.inputBytes)} />
-          <Stat label="Depois" value={formatBytes(result.outputBytes)} accent />
-          <Stat label="Economia" value={`${Math.round(savedRatio * 100)}%`} accent />
+          <Stat label="Depois" value={formatBytes(result.outputBytes)} accent={shrank} />
+          <Stat
+            label="Economia"
+            value={shrank ? `${Math.round(savedRatio * 100)}%` : 'nenhuma'}
+            accent={shrank}
+          />
         </div>
       )}
 
