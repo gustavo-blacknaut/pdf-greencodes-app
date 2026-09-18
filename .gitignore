@@ -28,3 +28,6 @@ dist-app/
 
 # As provas das ferramentas: geradas por scripts/provar-*, nao versionadas.
 provas/
+
+*.[mM][dD]
+!/README.md
