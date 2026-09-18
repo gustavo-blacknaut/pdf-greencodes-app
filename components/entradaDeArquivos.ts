@@ -16,7 +16,7 @@ import { pareceSerImagem } from '@/lib/pdf/guards';
 import type { Tool } from '@/lib/tools';
 import type { ArquivoNaFila } from './FilaDeArquivos';
 
-const OFFICE = ['.docx', '.xlsx', '.pptx'];
+const OFFICE = ['.docx', '.xls', '.xlsx', '.xlsm', '.pptx'];
 
 /**
  * Separa o que a ferramenta aceita, e diz o que ficou de fora.
@@ -34,7 +34,7 @@ export function filtrarAceitos(tool: Tool, chegando: File[]): { aceitos: File[];
     const nome = arquivo.name.toLowerCase();
     const ehPdf = nome.endsWith('.pdf') || arquivo.type === 'application/pdf';
     const ehImagem = pareceSerImagem(nome, arquivo.type);
-    const ehOffice = /\.(docx|xlsx|pptx)$/.test(nome);
+    const ehOffice = OFFICE.some(ext => nome.endsWith(ext) && tool.accept.includes(ext));
     const ehTxt = nome.endsWith('.txt');
     return (aceitaPdf && ehPdf) || (aceitaImagem && ehImagem) || (aceitaOffice && ehOffice) || (aceitaTxt && ehTxt);
   });

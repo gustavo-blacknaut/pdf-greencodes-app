@@ -19,13 +19,12 @@
  */
 
 import {
-  aplicarNosPixels,
   ajustesDe,
   medidaGirada,
-  raioDaNitidez,
   temAjuste,
   type Ajustes,
 } from './ajustes';
+import { ajustarArea } from './faixas';
 import {
   bordaNaFolha,
   folhaEmMm,
@@ -311,41 +310,6 @@ export function ajustarCanvas(tela: HTMLCanvasElement, ajustes: Ajustes, pixelsP
   const pincel = tela.getContext('2d', { willReadFrequently: true });
   if (!pincel) return;
   ajustarArea(pincel, { x: 0, y: 0, largura: tela.width, altura: tela.height }, pixelsPorMm, ajustes);
-}
-
-/**
- * Aplica os ajustes só onde a arte caiu, em faixas.
- *
- * Em faixas porque uma A4 a 600 DPI são 35 milhões de pixels: pedir a imagem
- * inteira de uma vez, mais o borrão da nitidez, passaria de meio gigabyte e
- * derrubaria a janela justamente na máquina fraca. Cada faixa leva uma sobra
- * em cima e embaixo, do tamanho do raio, para a nitidez não marcar a emenda.
- */
-function ajustarArea(
-  pincel: CanvasRenderingContext2D,
-  area: { x: number; y: number; largura: number; altura: number },
-  pixelsPorMm: number,
-  ajustes: Ajustes,
-): void {
-  const tela = pincel.canvas;
-  const x = Math.max(0, Math.floor(area.x));
-  const y = Math.max(0, Math.floor(area.y));
-  const largura = Math.min(tela.width - x, Math.ceil(area.largura + (area.x - x)));
-  const altura = Math.min(tela.height - y, Math.ceil(area.altura + (area.y - y)));
-  if (largura <= 0 || altura <= 0) return;
-
-  const sobra = ajustes.nitidez > 0 ? raioDaNitidez(pixelsPorMm) + 1 : 0;
-  const porFaixa = Math.max(1, Math.floor(4_000_000 / largura));
-
-  for (let inicio = 0; inicio < altura; inicio += porFaixa) {
-    const de = Math.max(0, inicio - sobra);
-    const ate = Math.min(altura, inicio + porFaixa + sobra);
-    const faixa = pincel.getImageData(x, y + de, largura, ate - de);
-    aplicarNosPixels(faixa.data, largura, ate - de, ajustes, pixelsPorMm);
-    // Devolve só o miolo: as sobras existiram para o borrão, e as delas
-    // mesmas saíram sem vizinho de um dos lados.
-    pincel.putImageData(faixa, x, y + de, 0, inicio - de, largura, Math.min(porFaixa, altura - inicio));
-  }
 }
 
 function desenharMarcas(

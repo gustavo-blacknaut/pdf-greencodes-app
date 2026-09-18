@@ -5,6 +5,7 @@ import { CloudOff, FolderOpen, UploadCloud } from 'lucide-react';
 import { cx } from '@/lib/utils';
 import { aoArrastar, type ArquivoEscolhido } from '@/lib/desktop';
 import { useSeletorDeArquivos } from './useSeletorDeArquivos';
+import { alvoEditavel } from '@/lib/atalhos';
 
 export function Dropzone({
   accept,
@@ -44,6 +45,7 @@ export function Dropzone({
   // Colar um arquivo (Ctrl+V) é o caminho mais rápido depois de um print.
   useEffect(() => {
     function onPaste(event: ClipboardEvent) {
+      if (event.defaultPrevented || alvoEditavel(event.target)) return;
       const files = [...(event.clipboardData?.files ?? [])];
       if (files.length) {
         event.preventDefault();
@@ -53,6 +55,17 @@ export function Dropzone({
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
   }, [multiple, onFiles]);
+
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      if (!e.defaultPrevented && !alvoEditavel(e.target) && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        void abrir();
+      }
+    };
+    window.addEventListener('keydown', tecla);
+    return () => window.removeEventListener('keydown', tecla);
+  }, [abrir]);
 
   // No aplicativo o arrastar chega pelo Tauri, e não pelos eventos da página:
   // é daqui que a zona sabe que tem arquivo por cima. Soltar é com a tela.

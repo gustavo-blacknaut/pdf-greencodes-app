@@ -6,9 +6,9 @@ export const EDITAR: Tool[] = [
     slug: 'girar-pdf',
     operation: 'apply-plan',
     name: 'Girar PDF',
-    tagline: 'Clique na página para endireitar',
+    tagline: 'Gire somente as páginas selecionadas',
     description:
-      'Cada clique numa miniatura gira aquela página 90°. Se o documento inteiro veio torto, um botão gira todas de uma vez.',
+      'Selecione as páginas individualmente e escolha 90°, 180° ou 270°. A prévia e o selo de ângulo mostram quais páginas serão alteradas. Selecionar todas continua disponível.',
     icon: 'RotateCw',
     accent: '34 197 94',
     category: 'Editar',

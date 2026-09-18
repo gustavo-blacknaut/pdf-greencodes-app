@@ -25,7 +25,7 @@ export const PAPEIS: Record<string, Medida> = {
   A4: { largura: 210, altura: 297 },
   A5: { largura: 148, altura: 210 },
   Legal: { largura: 216, altura: 356 },
-  Letter: { largura: 216, altura: 279 },
+  Letter: { largura: 215.9, altura: 279.4 },
   Tabloid: { largura: 279, altura: 432 },
 };
 

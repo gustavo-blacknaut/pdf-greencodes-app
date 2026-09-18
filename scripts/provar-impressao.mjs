@@ -38,7 +38,7 @@ const PAPEIS = {
   A3: { largura: 297, altura: 420, codigo: 8 },
   A4: { largura: 210, altura: 297, codigo: 9 },
   A5: { largura: 148, altura: 210, codigo: 11 },
-  Letter: { largura: 216, altura: 279, codigo: 1 },
+  Letter: { largura: 215.9, altura: 279.4, codigo: 1 },
 };
 
 /* ------------------------------------------------------------ a folha de teste */

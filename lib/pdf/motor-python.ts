@@ -25,6 +25,7 @@
  */
 
 import { motorPython } from '../desktop';
+import { abortarSePreciso } from './guards';
 import type { OutputFile, RunContext, RunResult } from './tipos';
 
 type Opcoes = Record<string, string | number | boolean>;
@@ -182,6 +183,7 @@ const NO_PYTHON: Record<string, Traducao> = {
     rotulo: 'Montando as folhas',
     opcoes: (o) => ({
       porFolha: numero(o.perSheet, 2),
+      papel: String(o.papel ?? 'A4'),
       espaco: numero(o.espacamentoMm, 0),
       margem: numero(o.margemMm, 0),
       borda: o.border === true || o.border === 'true',
@@ -392,10 +394,11 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
 
   // Cancelar mata o processo do motor: ele atende um trabalho de cada vez, e
   // é o único jeito de parar um desenho de mil páginas na hora.
-  const aoCancelar = () => void motor.cancelar();
+  const aoCancelar = () => void motor.cancelar().catch(() => {});
   ctx.signal?.addEventListener('abort', aoCancelar);
 
   try {
+    abortarSePreciso(ctx.signal);
     ctx.onProgress(0.02, 'Preparando o arquivo');
 
     // O arquivo que veio do disco entra por link, sem atravessar a janela de
@@ -403,6 +406,7 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
     // é gravado na pasta de trabalho.
     const caminhos: string[] = [];
     for (const arquivo of ctx.files) {
+      abortarSePreciso(ctx.signal);
       caminhos.push(await entradaDoMotor(motor, pasta, arquivo));
     }
     // Com entrada no disco, a saída também não volta para a memória: vai
@@ -413,6 +417,7 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
     // pasta temporária. Sai `contrato-comprimido.pdf` em vez de um "saida"
     // sem extensão, e vale tanto para quem gera um arquivo quanto para quem
     // gera uma pasta com vários.
+    abortarSePreciso(ctx.signal);
     const dados = (await motor.executar(traducao.acao, {
       arquivos: caminhos,
       opcoes: traducao.opcoes ? traducao.opcoes(ctx.options) : {},

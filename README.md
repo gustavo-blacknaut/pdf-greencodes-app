@@ -1,8 +1,8 @@
 # PDF.GreenCodes
 
-75 ferramentas de PDF e de gráfica que rodam inteiras na sua máquina. Sem upload, sem servidor,
+79 ferramentas de PDF e de gráfica que rodam inteiras na sua máquina. Sem upload, sem servidor,
 sem conta. As 20 do dia a dia estão no site, [pdf.greencodes.com.br](https://pdf.greencodes.com.br);
-todas as 75 estão no aplicativo para Windows, que é grátis:
+todas as 79 estão no aplicativo para Windows, que é grátis:
 [baixar](https://github.com/gustavo-blacknaut/pdf-greencodes-app/releases/latest/download/PDF.GreenCodes-Setup.exe).
 
 O aplicativo foi feito para gráfica: converte RGB para CMYK sem rasterizar, imprime em 600 e
@@ -23,7 +23,7 @@ O mesmo código gera os dois. O que muda é quanto cada um entrega:
 
 | | Site | Aplicativo para Windows |
 |---|---|---|
-| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as 75 |
+| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as 79 |
 | Tamanho | até **200 MB** por vez, sem limite de páginas | até **2 GB** por arquivo, direto do disco |
 | Motor de PDF | o do navegador (pdf.js, pdf-lib) | PyMuPDF, até 16 vezes mais rápido |
 | Resultado | você baixa | aparece sozinho em Downloads |
@@ -554,3 +554,16 @@ npm run publicar-app -- notas.md    # release com o instalador anexado, nos dois
 
 A versão mora em três lugares — `package.json`, `src-tauri/Cargo.toml` e
 `src-tauri/tauri.conf.json` —, e o `publicar-app` recusa publicar se eles não baterem.
+
+
+### Revisão local 4.8.0
+
+- Impressão com padrão de 600 DPI, inclusive ao recuperar configurações antigas.
+- Duas páginas em uma folha A4: duas áreas A5 lado a lado, com rotação automática.
+- Nova ferramenta de calibração: moldes de etiquetas e réguas de 100 mm para conferir a escala e o deslocamento da impressora.
+- Nova ferramenta para separar páginas por tamanho de papel, com tolerância e separação opcional por orientação.
+- Quantidades por imagem nas etiquetas, margem interna esquerda e ajustes por coluna.
+- Correções de transferência para impressão, salvamento simultâneo, nomes repetidos, cancelamento e liberação de memória após falhas.
+- Preparação de lotes de impressão sob demanda, sem montar todos os lotes na memória.
+
+A calibração física depende da impressora: imprima a referência em tamanho real, sem ajuste automático do driver, antes de usar uma folha de etiquetas.

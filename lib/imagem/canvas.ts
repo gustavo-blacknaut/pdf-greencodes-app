@@ -29,9 +29,14 @@ export async function pixelsDe(imagem: Decodificada): Promise<Bitmap> {
   const pincel = canvas.getContext('2d', { willReadFrequently: true });
   if (!pincel) throw new Error('O navegador não deixou ler os pixels da imagem.');
 
-  pincel.drawImage(imagem.bitmap, 0, 0);
-  const dados = pincel.getImageData(0, 0, imagem.largura, imagem.altura);
-  return { dados: dados.data, largura: imagem.largura, altura: imagem.altura };
+  try {
+    pincel.drawImage(imagem.bitmap, 0, 0);
+    const dados = pincel.getImageData(0, 0, imagem.largura, imagem.altura);
+    return { dados: dados.data, largura: imagem.largura, altura: imagem.altura };
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 /** Um canvas com os pixels já dentro, para quem ainda vai desenhar por cima. */
@@ -67,20 +72,27 @@ export async function gravarPixels(
 ): Promise<Blob> {
   const alvo = FORMATOS_DE_SAIDA[formato];
   const comPixels = canvasDe(mapa);
+  let canvas: HTMLCanvasElement | undefined;
 
-  if (alvo.temTransparencia) {
-    return canvasToBlob(comPixels, alvo.mime, alvo.temQualidade ? qualidade : undefined);
+  try {
+    if (alvo.temTransparencia) {
+      return await canvasToBlob(comPixels, alvo.mime, alvo.temQualidade ? qualidade : undefined);
+    }
+
+    canvas = document.createElement('canvas');
+    canvas.width = mapa.largura;
+    canvas.height = mapa.altura;
+    const pincel = canvas.getContext('2d');
+    if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
+
+    pincel.fillStyle = '#ffffff';
+    pincel.fillRect(0, 0, canvas.width, canvas.height);
+    pincel.drawImage(comPixels, 0, 0);
+
+    return await canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined);
+  } finally {
+    comPixels.width = 0;
+    comPixels.height = 0;
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
   }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = mapa.largura;
-  canvas.height = mapa.altura;
-  const pincel = canvas.getContext('2d');
-  if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
-
-  pincel.fillStyle = '#ffffff';
-  pincel.fillRect(0, 0, canvas.width, canvas.height);
-  pincel.drawImage(comPixels, 0, 0);
-
-  return canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined);
 }

@@ -26,6 +26,11 @@ export const ORGANIZAR: Tool[] = [
     orderable: true,
     cta: 'Juntar arquivos',
     fields: [
+      { key: 'compressaoApos', type: 'select', label: 'Comprimir depois de juntar', default: 'nao', options: [
+        { value: 'nao', label: 'Não — somente juntar' },
+        { value: 'sem-perda', label: 'Sim — sem perda de qualidade' },
+        { value: 'alta', label: 'Sim — recomprimir fotos a 600 DPI' },
+      ], help: 'Sem perda preserva o conteúdo. Recomprimir fotos pode alterar pixels; é uma escolha opcional.' },
       {
         key: 'filename',
         type: 'text',
@@ -238,7 +243,7 @@ export const ORGANIZAR: Tool[] = [
         label: 'Páginas por folha',
         default: '2',
         options: [
-          { value: '2', label: '2 por folha', hint: 'folha deitada, 1 x 2' },
+          { value: '2', label: '2 por folha', hint: 'folha deitada, lado a lado' },
           { value: '4', label: '4 por folha', hint: 'grade 2 x 2' },
           { value: '6', label: '6 por folha', hint: 'grade 2 x 3' },
           { value: '8', label: '8 por folha', hint: 'grade 2 x 4' },

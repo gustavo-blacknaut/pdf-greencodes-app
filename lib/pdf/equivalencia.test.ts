@@ -107,6 +107,9 @@ type Caso = {
 
 const CASOS: Caso[] = [
   { op: 'n-up', nome: 'várias por folha', opcoes: { perSheet: 4 }, paginas: 12 },
+  { op: 'n-up', nome: 'duas A5 em A4', opcoes: { perSheet: 2 }, paginas: 3 },
+  { op: 'n-up', nome: 'doze por folha', opcoes: { perSheet: 12 }, paginas: 13 },
+  { op: 'n-up', nome: 'papel Carta escolhido na impressão', opcoes: { perSheet: 2, papel: 'Letter' }, paginas: 3 },
   { op: 'reverse', nome: 'inverter páginas', opcoes: {}, paginas: 8 },
   { op: 'booklet', nome: 'livreto', opcoes: {}, paginas: 8 },
   { op: 'odd-even', nome: 'separar pares e ímpares', opcoes: {}, paginas: 9 },

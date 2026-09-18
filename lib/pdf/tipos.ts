@@ -52,6 +52,8 @@ export type RunResult = {
   inputBytes: number;
   outputBytes: number;
   notes: string[];
+  /** Folha já montada em medida física: abre a impressão em tamanho real. */
+  papelImpressao?: 'A3' | 'A4' | 'A5' | 'Legal' | 'Letter' | 'Tabloid';
   /** Comparativo de tamanho: só faz sentido onde encolher é o objetivo. */
   highlightSavings?: boolean;
 };

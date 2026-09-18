@@ -136,6 +136,7 @@ def faixa_de_paginas(texto: str, total: int) -> list[int]:
         return list(range(total))
 
     escolhidas: list[int] = []
+    vistas: set[int] = set()
     for parte in texto.replace(";", ",").split(","):
         parte = parte.strip()
         if not parte:
@@ -157,9 +158,11 @@ def faixa_de_paginas(texto: str, total: int) -> list[int]:
         if primeira > ultima:
             primeira, ultima = ultima, primeira
 
-        for numero in range(primeira, ultima + 1):
+        # O custo depende do documento, mesmo se alguém digitar 1-999999999.
+        for numero in range(max(1, primeira), min(total, ultima) + 1):
             indice = numero - 1
-            if 0 <= indice < total and indice not in escolhidas:
+            if indice not in vistas:
+                vistas.add(indice)
                 escolhidas.append(indice)
 
     if not escolhidas:

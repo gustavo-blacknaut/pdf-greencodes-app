@@ -15,10 +15,12 @@ import {
   Zap,
 } from 'lucide-react';
 import { Dropzone } from './Dropzone';
+import { useColarArquivos } from './useColarArquivos';
 import { filtrarAceitos, lerNaFila } from './entradaDeArquivos';
 import { ErroDaFerramenta } from './ErroDaFerramenta';
 import { FilaDeArquivos, type ArquivoNaFila } from './FilaDeArquivos';
 import { OptionField } from './OptionField';
+import { QuantidadesEtiquetas } from './QuantidadesEtiquetas';
 import { PageBoard } from './PageBoard';
 import { useSeletorDeArquivos } from './useSeletorDeArquivos';
 import { PdfEditor } from './PdfEditor';
@@ -59,7 +61,7 @@ const BOARD_HINTS: Record<BoardMode, string> = {
   organize: 'Arraste as miniaturas para reordenar. Passe o mouse numa página para girar ou excluir.',
   remove: 'Clique nas páginas que devem sair. Clique de novo para desmarcar.',
   keep: 'Clique nas páginas que vão para o novo arquivo.',
-  rotate: 'Cada clique numa página gira 90° para a direita.',
+  rotate: 'Selecione as páginas, escolha 90°, 180° ou 270° e clique em Girar selecionadas. O selo mostra o giro acumulado.',
 };
 
 type Phase = 'idle' | 'running' | 'done';
@@ -119,6 +121,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
   // Sair da ferramenta apaga qualquer resultado ainda pendente.
   useEffect(
     () => () => {
+      abortRef.current?.abort();
       if (resultIdRef.current) vault.purge(resultIdRef.current, 'saiu');
     },
     [],
@@ -271,6 +274,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
   // Arquivo arrastado para a janela do aplicativo: o mesmo trilho do diálogo.
   // Durante um trabalho, espera; com o resultado na tela, começa outro.
   const receber = seletor.receber;
+  useColarArquivos(addFiles, !tool.semArquivo && phase === 'idle', seletor.abrir);
   useEffect(
     () =>
       aoSoltarArquivos((lista) => {
@@ -495,6 +499,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
       delete semODocumento.elementos;
       // A área marcada é do arquivo que saiu: fica na imagem seguinte senão.
       delete semODocumento.recorte;
+      for (const key of Object.keys(semODocumento)) if (key.startsWith('quantidade:')) delete semODocumento[key];
       return semODocumento;
     });
   }
@@ -741,6 +746,9 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
 
           {/* Opções + ação */}
           <div className="card min-w-0 space-y-5 p-4 sm:p-5 lg:sticky lg:top-24">
+            {tool.operation === 'labels' && <QuantidadesEtiquetas arquivos={ready.map((item) => item.data!)}
+              opcoes={options} disabled={phase === 'running'}
+              onChange={(key, value) => setOptions((current) => ({ ...current, [key]: value }))} />}
             {visibleFields.length > 0 ? (
               <>
                 <div className="flex items-center gap-2">

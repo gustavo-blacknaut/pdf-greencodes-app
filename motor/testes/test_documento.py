@@ -12,6 +12,12 @@ from motor.protocolo import ErroDoUsuario
 
 
 class TestFaixaDePaginas:
+    def test_intervalo_enorme_so_percorre_paginas_existentes(self):
+        assert faixa_de_paginas("1-999999999999", 3) == [0, 1, 2]
+
+    def test_faixas_sobrepostas_preservam_ordem_sem_repeticoes(self):
+        assert faixa_de_paginas("3-5, 1-4", 5) == [2, 3, 4, 0, 1]
+
     def test_vazio_quer_dizer_tudo(self):
         assert faixa_de_paginas("", 4) == [0, 1, 2, 3]
 

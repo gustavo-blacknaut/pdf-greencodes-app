@@ -161,6 +161,9 @@ async function arquivosDeOffice(): Promise<Record<'docx' | 'xlsx' | 'pptx', Arra
   );
 
   const xlsx = new JSZip();
+  xlsx.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>');
+  xlsx.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+
   // O leitor entra pelo workbook: é dele que saem os nomes das abas.
   xlsx.file(
     'xl/workbook.xml',
@@ -257,7 +260,7 @@ export default function ProvarTudo() {
   /*
    * O HEIC é o único exemplo que não dá para inventar: o formato guarda uma
    * imagem codificada em HEVC, e nada aqui codifica HEVC. Quem tem um iPhone
-   * fecha as 75 escolhendo uma foto — ela é lida na aba e nada dela entra no
+   * fecha todas escolhendo uma foto — ela é lida na aba e nada dela entra no
    * zip, que é o que sai desta tela.
    */
   const [heic, setHeic] = useState<File | null>(null);
@@ -387,7 +390,7 @@ export default function ProvarTudo() {
       </div>
 
       <label className="mt-4 flex flex-wrap items-center gap-2 text-[13px] text-muted">
-        <span>Para fechar as 75, escolha uma foto .HEIC do iPhone:</span>
+        <span>Para conferir todas, escolha uma foto .HEIC do iPhone:</span>
         <input
           type="file"
           accept=".heic,.heif,image/heic,image/heif"

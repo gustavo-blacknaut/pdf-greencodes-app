@@ -10,7 +10,6 @@ import {
   FolderOpen,
   HardDrive,
   Info,
-  MonitorPlay,
   Printer,
   RotateCcw,
   Timer,
@@ -18,16 +17,15 @@ import {
 } from 'lucide-react';
 import { ConviteDoAplicativo } from './ConviteDoAplicativo';
 import { vault } from '@/lib/ephemeral';
+import { salvarResultado } from '@/lib/salvar-resultado';
 import { zipFiles, type OperationId, type RunResult } from '@/lib/pdf/engine';
 import { cx, formatBytes, formatDuration } from '@/lib/utils';
 import {
-  abrirNoAplicativo,
   abrirNoNavegador,
   abrirNoSistema,
   definirAutoExclusao,
   estaNoAplicativo,
   revelarNoExplorador,
-  salvarNumerado,
 } from '@/lib/desktop';
 
 export function ResultPanel({
@@ -109,10 +107,9 @@ export function ResultPanel({
           porNome[arquivo.name] = arquivo.caminho;
           continue;
         }
-        const salvo = await salvarNumerado(arquivo.name, arquivo.blob, false);
-        if (cancelado) return;
+        const salvo = await salvarResultado(arquivo);
         if (!salvo.ok || !salvo.caminho) {
-          setError(salvo.erro ?? 'Não foi possível salvar o arquivo automaticamente.');
+          if (!cancelado) setError(salvo.erro ?? 'Não foi possível salvar o arquivo automaticamente.');
           break;
         }
         caminhos.push(salvo.caminho);
@@ -192,17 +189,23 @@ export function ResultPanel({
    */
   function irParaImpressao(nome: string) {
     const base = window.location.pathname.startsWith('/app') ? '/app/imprimir' : '/imprimir';
-    router.push(`${base}?fonte=${encodeURIComponent(entryId)}&arquivo=${encodeURIComponent(nome)}`);
+    const medidaReal = result.papelImpressao ? `&papel=${result.papelImpressao}&escala=original` : '';
+    try {
+      const transferencia = vault.transfer(entryId, nome);
+      router.push(`${base}?fonte=${encodeURIComponent(transferencia.id)}&arquivo=${encodeURIComponent(nome)}${medidaReal}`);
+    } catch (erro) {
+      setError(erro instanceof Error ? erro.message : 'Não foi possível preparar a impressão.');
+    }
   }
 
   /**
-   * Abre o arquivo, gravando antes só se ainda não estiver no disco.
+   * Mostra o arquivo na pasta, gravando antes se necessário.
    *
    * No aplicativo ele já foi gravado assim que ficou pronto, então aqui
    * normalmente só resta abrir. Gravar de novo daria o próximo número livre
    * e deixaria duas cópias do mesmo PDF na pasta.
    */
-  async function abrirUm(fileName: string) {
+  async function mostrarUm(fileName: string) {
     setError(null);
     const arquivo = entry!.files.find((f) => f.name === fileName);
     if (!arquivo) return;
@@ -211,7 +214,7 @@ export function ResultPanel({
     // gravar o blob ali seria gravar um arquivo de zero bytes.
     let caminho = caminhoDe[fileName] ?? arquivo.caminho;
     if (!caminho) {
-      const salvo = await salvarNumerado(arquivo.name, arquivo.blob, apagarEm1Dia);
+      const salvo = await salvarResultado(arquivo, apagarEm1Dia);
       if (!salvo.ok || !salvo.caminho) {
         setError(salvo.erro ?? 'Não foi possível salvar o arquivo.');
         return;
@@ -222,16 +225,13 @@ export function ResultPanel({
     }
 
     setSalvoEm(caminho);
-    // No próprio programa: é o que evita depender de qual leitor de PDF a
-    // máquina tem instalado, e o que a pessoa pediu.
-    const aberto = await abrirNoAplicativo(caminho);
-    if (!aberto.ok) setError(aberto.erro ?? null);
+    revelarNoExplorador(caminho);
   }
 
   /** Vários arquivos: cada um pega o próximo número livre da mesma pasta. */
   async function salvarTodos() {
     setError(null);
-    if (entry!.files.length === 1) return abrirUm(entry!.files[0].name);
+    if (entry!.files.length === 1) return mostrarUm(entry!.files[0].name);
 
     const caminhos: string[] = [];
     for (const arquivo of entry!.files) {
@@ -242,12 +242,13 @@ export function ResultPanel({
         caminhos.push(noDisco);
         continue;
       }
-      const r = await salvarNumerado(arquivo.name, arquivo.blob, apagarEm1Dia);
+      const r = await salvarResultado(arquivo, apagarEm1Dia);
       if (!r.ok || !r.caminho) {
         setError(r.erro ?? 'Não foi possível salvar os arquivos.');
         return;
       }
       caminhos.push(r.caminho);
+      setCaminhoDe((atuais) => ({ ...atuais, [arquivo.name]: r.caminho! }));
     }
     if (caminhos.length > 0) {
       setSalvoEm(caminhos[caminhos.length - 1]);
@@ -375,13 +376,13 @@ export function ResultPanel({
               )}
               <button
                 type="button"
-                onClick={() => (noApp ? abrirUm(file.name) : downloadOne(file.name))}
+                onClick={() => (noApp ? mostrarUm(file.name) : downloadOne(file.name))}
                 className={cx('btn-ghost shrink-0 px-3 py-2', !noApp && done && 'text-brand')}
                 title={!noApp && done ? 'Baixa outra cópia e apaga o arquivo da memória' : undefined}
               >
-                {noApp ? <ExternalLink className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                {noApp ? <FolderOpen className="h-4 w-4" /> : <Download className="h-4 w-4" />}
                 <span className="hidden sm:inline">
-                  {noApp ? 'Abrir' : done ? 'Baixar de novo' : 'Baixar'}
+                  {noApp ? 'Na pasta' : done ? 'Baixar de novo' : 'Baixar'}
                 </span>
               </button>
             </li>
@@ -407,16 +408,7 @@ export function ResultPanel({
             <span className="min-w-0 flex-1 truncate">Salvo em {salvoEm}</span>
           </p>
 
-          {/* Três destinos porque cada um serve a um momento: conferir sem
-              sair do programa, abrir num leitor de verdade, ou ir ao arquivo. */}
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => void abrirNoAplicativo(salvoEm)}
-              className="btn-ghost px-3 py-1.5 text-[12px]"
-            >
-              <MonitorPlay className="h-3.5 w-3.5" /> Abrir aqui
-            </button>
             <button
               type="button"
               onClick={() => void abrirNoNavegador(salvoEm)}
@@ -449,16 +441,16 @@ export function ResultPanel({
           <button
             type="button"
             onClick={noApp ? salvarTodos : downloadAll}
-            disabled={zipping}
+            disabled={zipping || gravando}
             className="btn-primary"
           >
-            {noApp ? <ExternalLink className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+            {noApp ? <FolderOpen className="h-4 w-4" /> : <Download className="h-4 w-4" />}
             {noApp
               ? entry.files.length > 1
                 ? salvos.length
                   ? 'Abrir a pasta'
                   : 'Salvar todos'
-                : 'Abrir'
+                : 'Mostrar na pasta'
               : entry.files.length > 1
                 ? zipping
                   ? 'Compactando...'
@@ -476,6 +468,7 @@ export function ResultPanel({
             <label className="btn ml-auto cursor-pointer select-none text-muted has-[:checked]:text-brand">
               <input
                 type="checkbox"
+                disabled={gravando}
                 checked={apagarEm1Dia}
                 onChange={(e) => void trocarAutoExclusao(e.target.checked)}
                 className="h-3.5 w-3.5 accent-brand"

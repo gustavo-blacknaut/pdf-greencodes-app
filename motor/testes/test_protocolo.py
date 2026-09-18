@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import pytest
 
 from motor.protocolo import ErroDoUsuario, Pedido, atender
 
@@ -22,6 +23,15 @@ def conversar(linhas, acoes):
 
 
 class TestAtender:
+    @pytest.mark.parametrize("pedido", [None, [], 3, {"acao": []}, {"opcoes": None},
+                                         {"arquivos": "a.pdf"}, {"senhas": [3]}, {"saida": []}])
+    def test_estrutura_invalida_nao_derruba_o_motor(self, pedido):
+        respostas = conversar([json.dumps(pedido), '{"id":"seguinte","acao":"eco"}'],
+                              {"eco": lambda p: {"ok": True}})
+        assert respostas[0]["classe"] == "PedidoInvalido"
+        assert respostas[1]["id"] == "seguinte"
+        assert respostas[1]["tipo"] == "fim"
+
     def test_responde_com_o_mesmo_id(self):
         respostas = conversar(['{"id":"7","acao":"eco"}'], {"eco": lambda p: {"ok": True}})
         assert respostas[0]["id"] == "7"

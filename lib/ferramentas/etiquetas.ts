@@ -151,7 +151,7 @@ export const ETIQUETAS: Tool[] = [
     ],
     accept: [...PDF_ACCEPT, ...IMAGE_ACCEPT],
     acceptLabel: 'PDF ou imagem',
-    multiple: false,
+    multiple: true,
     cta: 'Montar a folha',
     fields: [
       {
@@ -220,6 +220,7 @@ export const ETIQUETAS: Tool[] = [
         default: 0,
         min: -10,
         max: 10,
+        step: 0.1,
         help: 'Acerto fino quando a impressora puxa o papel um fio torto. Negativo empurra para a esquerda.',
       },
       {
@@ -229,7 +230,26 @@ export const ETIQUETAS: Tool[] = [
         default: 0,
         min: -10,
         max: 10,
+        step: 0.1,
       },
+      {
+        key: 'bordaEsquerdaMm', type: 'number', label: 'Borda interna à esquerda (mm)',
+        default: 2, min: 0, max: 10, step: 0.1,
+        showIf: { key: 'modelo', equals: '6093' },
+        help: '2 mm = 0,2 cm de respiro dentro de cada adesivo. Não desloca a grade da folha.',
+      },
+      {
+        key: 'alturaArteMm', type: 'number', label: 'Ajuste da altura da arte (mm)',
+        default: 0, min: -10, max: 4, step: 0.1,
+        showIf: { key: 'modelo', equals: '6093' },
+        help: 'Positivo amplia a arte na vertical, mantendo a proporção e o recorte dentro da etiqueta. Para mover a impressão, use “Deslocar para baixo”.',
+      },
+      ...[2, 3, 4].map((coluna): Field => ({
+        key: `coluna${coluna}Mm`, type: 'number', label: `Ajuste da coluna ${coluna} (mm)`,
+        default: 0, min: -5, max: 5, step: 0.1,
+        showIf: { key: 'modelo', equals: '6093' },
+        help: 'Positivo move só esta coluna para a direita; negativo, para a esquerda. A primeira coluna fica no lugar.',
+      })),
       {
         key: 'conferir',
         type: 'toggle',
@@ -240,11 +260,11 @@ export const ETIQUETAS: Tool[] = [
       {
         key: 'modo',
         type: 'select',
-        label: 'Com várias páginas',
-        default: 'repetir',
+        label: 'Distribuição das artes',
+        default: 'sequencia',
         options: [
           { value: 'repetir', label: 'Uma folha por página', hint: 'a mesma etiqueta enchendo a folha' },
-          { value: 'sequencia', label: 'Todas na mesma folha', hint: 'etiquetas diferentes lado a lado' },
+          { value: 'sequencia', label: 'Todas juntas, com quantidades', hint: 'escolha quantas etiquetas quer de cada arte' },
         ],
       },
     ],

@@ -10,7 +10,7 @@
 
 import { canvasToBlob, escapeXml, openWithPdfJs, renderPageToCanvas, respirar, salvarPdf, sanitizeText } from '../nucleo';
 import { type RunContext, type RunResult } from '../tipos';
-import { replaceExtension, suffixName, yieldToBrowser } from '../../utils';
+import { replaceExtension, suffixName } from '../../utils';
 import { abortarSePreciso } from '../guards';
 import { type OcrLanguage, createOcrWorker } from '../ocr';
 import { loadPdfLib } from '../lazy';
@@ -22,24 +22,27 @@ export async function pdfToText(ctx: RunContext): Promise<RunResult> {
   const chunks: string[] = [];
   let foundText = false;
 
-  for (let i = 1; i <= doc.numPages; i += 1) {
-    ctx.onProgress((i - 1) / doc.numPages, `Extraindo texto da página ${i}/${doc.numPages}`);
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    let text = '';
-    for (const item of content.items) {
-      if (!('str' in item)) continue;
-      text += item.str;
-      if (item.hasEOL) text += '\n';
-      else if (!item.str.endsWith(' ')) text += ' ';
+  try {
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      ctx.onProgress((i - 1) / doc.numPages, `Extraindo texto da página ${i}/${doc.numPages}`);
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      let text = '';
+      for (const item of content.items) {
+        if (!('str' in item)) continue;
+        text += item.str;
+        if (item.hasEOL) text += '\n';
+        else if (!item.str.endsWith(' ')) text += ' ';
+      }
+      const clean = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      if (clean) foundText = true;
+      chunks.push(separators ? `--- Página ${i} ---\n${clean}` : clean);
+      page.cleanup();
+      await respirar(ctx);
     }
-    const clean = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-    if (clean) foundText = true;
-    chunks.push(separators ? `--- Página ${i} ---\n${clean}` : clean);
-    page.cleanup();
-    await yieldToBrowser();
+  } finally {
+    await doc.destroy();
   }
-  await doc.destroy();
 
   const body = chunks.join('\n\n');
   const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
@@ -73,12 +76,13 @@ export async function ocr(ctx: RunContext): Promise<RunResult> {
   const dpi = 200;
 
   ctx.onProgress(0, 'Preparando o motor de OCR (a primeira vez baixa alguns megabytes)...');
-  const worker = await createOcrWorker(lang);
+  let worker: Awaited<ReturnType<typeof createOcrWorker>> | undefined;
 
   let somaConfianca = 0;
   let paginasComBaixaConfianca = 0;
 
   try {
+    worker = await createOcrWorker(lang);
     for (let i = 1; i <= totalPaginas; i += 1) {
       abortarSePreciso(ctx.signal);
       ctx.onProgress((i - 1) / totalPaginas, `Reconhecendo texto da página ${i}/${totalPaginas}`);
@@ -94,15 +98,16 @@ export async function ocr(ctx: RunContext): Promise<RunResult> {
       const novaPagina = out.addPage([widthPt, heightPt]);
       novaPagina.drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
 
-      const escala = 72 / dpi;
+      const escalaX = widthPt / canvas.width;
+      const escalaY = heightPt / canvas.height;
       for (const word of data.words) {
         const texto = sanitizeText(word.text ?? '');
         if (!texto.trim()) continue;
         const alturaPx = word.bbox.y1 - word.bbox.y0;
-        const tamanho = Math.max(4, alturaPx * escala);
+        const tamanho = Math.max(4, alturaPx * escalaY);
         novaPagina.drawText(texto, {
-          x: word.bbox.x0 * escala,
-          y: heightPt - word.bbox.y1 * escala,
+          x: word.bbox.x0 * escalaX,
+          y: heightPt - word.bbox.y1 * escalaY,
           size: tamanho,
           font: fonte,
           renderMode: TextRenderingMode.Invisible,
@@ -117,9 +122,10 @@ export async function ocr(ctx: RunContext): Promise<RunResult> {
       await respirar(ctx);
     }
   } finally {
-    await worker.terminate();
+    canvas.width = 0;
+    canvas.height = 0;
+    try { await worker?.terminate(); } finally { await doc.destroy(); }
   }
-  await doc.destroy();
 
   const blob = await salvarPdf(out, source.senha);
   ctx.onProgress(1);
@@ -208,12 +214,12 @@ export async function pdfToWord(ctx: RunContext): Promise<RunResult> {
       paginasXml.push(paragrafos + quebraDePagina);
 
       page.cleanup();
-      await yieldToBrowser();
+      await respirar(ctx);
     }
   } finally {
-    await worker?.terminate();
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    try { await worker?.terminate(); } finally { await doc.destroy(); }
   }
-  await doc.destroy();
 
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paginasXml.join('')}<w:sectPr/></w:body></w:document>`;

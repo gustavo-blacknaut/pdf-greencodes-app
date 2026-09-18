@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { runOperation, type LoadedFile, type RunContext } from './engine';
 import { CANTOS } from './operacoes/grafica';
-import { calcularGrade } from './operacoes/etiquetas';
+import { calcularGrade, MODELOS_DE_ETIQUETA } from './operacoes/etiquetas';
 import { loadPdfLib } from './lazy';
 
 const PT_POR_MM = 72 / 25.4;
@@ -106,6 +106,25 @@ describe('calcularGrade', () => {
     expect(calcularGrade(a4.l, a4.a, 400 * PT_POR_MM, 50 * PT_POR_MM, 5 * PT_POR_MM, 0)).toBeNull();
     expect(calcularGrade(a4.l, a4.a, 0, 50, 5, 0)).toBeNull();
   });
+});
+
+describe('medidas dos moldes prontos', () => {
+  it('Pimaco 6093 segue as medidas conferidas na folha física', () => {
+    const molde = MODELOS_DE_ETIQUETA['6093'];
+    expect(molde).toMatchObject({
+      colunas: 4,
+      linhas: 6,
+      largura: 42.33,
+      altura: 42.33,
+      esquerda: 7.976,
+      topo: 7.976,
+      passoX: 52.541,
+      passoY: 44.311,
+    });
+    expect(molde.passoX - molde.largura).toBeCloseTo(10.211, 3);
+    expect(molde.passoY - molde.altura).toBeCloseTo(1.981, 3);
+  });
+
 });
 
 describe('cartão de visita', () => {
@@ -217,13 +236,23 @@ describe('etiquetas em folha Pimaco', () => {
   });
 
   it('a 6093 é redonda: o desenho sai recortado no círculo', async () => {
-    const resultado = await runOperation('labels', ctx(await pdfDe(1, 120, 120), { modelo: '6093' }));
+    const resultado = await runOperation('labels', ctx(await pdfDe(1, 120, 120), { modelo: '6093', bordaEsquerdaMm: 0 }));
     const texto = await conteudo(resultado.files[0].blob);
 
     expect(resultado.notes.join(' ')).toMatch(/4 x 6 = 24 por folha/);
     // Um recorte por etiqueta, cada um fechado com W n.
     expect(texto.match(/W\s*\n?\s*n/g) ?? []).toHaveLength(24);
     expect(texto.match(/c\s/g)?.length ?? 0).toBeGreaterThanOrEqual(24 * 4);
+
+    const onde = await posicoes(resultado.files[0].blob);
+    const colunas = [...new Set(onde.map((p) => p.x))].sort((a, b) => a - b);
+    const linhas = [...new Set(onde.map((p) => p.y))].sort((a, b) => b - a);
+    expect(colunas).toHaveLength(4);
+    expect(linhas).toHaveLength(6);
+    expect(colunas[0]).toBeCloseTo(7.976, 1);
+    expect(colunas[1] - colunas[0]).toBeCloseTo(52.541, 1);
+    expect(279.4 - (linhas[0] + 42.33)).toBeCloseTo(7.976, 1);
+    expect(linhas[0] - linhas[1]).toBeCloseTo(44.311, 1);
   });
 
   it('o deslocamento move a folha inteira, para acertar a impressora', async () => {
@@ -235,6 +264,19 @@ describe('etiquetas em folha Pimaco', () => {
     expect(movido[0].x - reto[0].x).toBeCloseTo(2, 0);
     // Para baixo no papel é para baixo no eixo do PDF, que conta ao contrário.
     expect(reto[0].y - movido[0].y).toBeCloseTo(3, 0);
+  });
+
+  it('calibra cada coluna da 6093 sem mover a primeira nem alterar as fileiras', async () => {
+    const arte = await pdfDe(1, 120, 120);
+    const options = { modelo: '6093', bordaEsquerdaMm: 0 };
+    const reto = await posicoes((await runOperation('labels', ctx(arte, options))).files[0].blob);
+    const corrigido = await posicoes((await runOperation('labels', ctx(arte, {
+      ...options, coluna2Mm: -0.4, coluna3Mm: 1, coluna4Mm: 2,
+    }))).files[0].blob);
+    for (let i = 0; i < 24; i += 1) {
+      expect(corrigido[i].x - reto[i].x).toBeCloseTo([0, -0.4, 1, 2][i % 4], 1);
+      expect(corrigido[i].y).toBe(reto[i].y);
+    }
   });
 
   it('a medida livre continua calculando a grade', async () => {

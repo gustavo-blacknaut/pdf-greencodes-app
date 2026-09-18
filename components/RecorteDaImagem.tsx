@@ -37,6 +37,8 @@ export type RecorteDeArquivo = Recorte & { id: string };
 /** As proporções que a gráfica pede todo dia, mais a livre. */
 const PROPORCOES = [
   { valor: 'livre', rotulo: 'Livre' },
+  { valor: '10x15', rotulo: '10×15 em pé' },
+  { valor: '15x10', rotulo: '10×15 deitado' },
   { valor: '3x4', rotulo: '3:4' },
   { valor: '4x3', rotulo: '4:3' },
   { valor: '1x1', rotulo: '1:1' },
@@ -260,6 +262,9 @@ export function RecorteDaImagem({
 
   const arrastar = useCallback(
     (evento: React.PointerEvent) => {
+      // O evento da alça também chegava à seleção e à área, publicando o
+      // mesmo recorte três vezes para um único movimento.
+      evento.stopPropagation();
       const atual = arrasto.current;
       if (!atual || !medida) return;
       const razao = escala();
@@ -344,14 +349,17 @@ export function RecorteDaImagem({
     <div className="card min-w-0 space-y-4 p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-2">
         <Scissors className="h-4 w-4 shrink-0 text-muted" />
-        <p className="text-[13px] font-medium">Marque o pedaço que fica</p>
+        <div>
+          <p className="text-[13px] font-medium">Marque o pedaço que fica</p>
+          <p className="mt-0.5 text-[11px] text-muted">A parte clara é exatamente o que vai sair. Arraste a área ou as alças.</p>
+        </div>
         <button type="button" onClick={onTrocarArquivo} className="btn-ghost ml-auto shrink-0 px-3 py-2 text-xs">
           <Plus className="h-3.5 w-3.5" /> Trocar arquivo
         </button>
       </div>
 
       {/* A imagem, com a marcação por cima. */}
-      <div className="rounded-xl bg-elevated p-2">
+      <div className="rounded-xl border border-line bg-elevated p-2 shadow-inner">
         <div ref={espacoRef} className="flex justify-center">
         <div
           ref={area}

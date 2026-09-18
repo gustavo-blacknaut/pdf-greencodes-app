@@ -136,6 +136,8 @@ describe('medidas', () => {
   it('proporcaoDe entende o que está escrito no botão', () => {
     expect(proporcaoDe('3x4')).toBeCloseTo(0.75, 5);
     expect(proporcaoDe('16x9')).toBeCloseTo(16 / 9, 5);
+    expect(proporcaoDe('10x15')).toBeCloseTo(2 / 3, 5);
+    expect(proporcaoDe('15x10')).toBeCloseTo(3 / 2, 5);
     expect(proporcaoDe('livre')).toBeUndefined();
   });
 

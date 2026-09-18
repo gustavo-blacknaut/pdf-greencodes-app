@@ -39,25 +39,45 @@ async function gravar(
   medida: Medida,
   formato: FormatoDeSaida,
   qualidade: number,
+  area?: Recorte,
 ): Promise<Blob> {
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, medida.largura);
-  canvas.height = Math.max(1, medida.altura);
-  const pincel = canvas.getContext('2d');
-  if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
+  try {
+    canvas.width = Math.max(1, medida.largura);
+    canvas.height = Math.max(1, medida.altura);
+    const pincel = canvas.getContext('2d');
+    if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
 
-  // JPEG não tem transparência: sem o fundo branco, o que era transparente
-  // sai preto, e uma logo em PNG vira um borrão escuro.
-  if (!FORMATOS_DE_SAIDA[formato].temTransparencia) {
-    pincel.fillStyle = '#ffffff';
-    pincel.fillRect(0, 0, canvas.width, canvas.height);
+    // JPEG não tem transparência: sem o fundo branco, o que era transparente
+    // sai preto, e uma logo em PNG vira um borrão escuro.
+    if (!FORMATOS_DE_SAIDA[formato].temTransparencia) {
+      pincel.fillStyle = '#ffffff';
+      pincel.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    pincel.imageSmoothingQuality = 'high';
+    if (area) {
+      pincel.drawImage(
+        imagem.bitmap,
+        area.x,
+        area.y,
+        area.largura,
+        area.altura,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+    } else {
+      pincel.drawImage(imagem.bitmap, 0, 0, canvas.width, canvas.height);
+    }
+
+    const alvo = FORMATOS_DE_SAIDA[formato];
+    return await canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
   }
-
-  pincel.imageSmoothingQuality = 'high';
-  pincel.drawImage(imagem.bitmap, 0, 0, canvas.width, canvas.height);
-
-  const alvo = FORMATOS_DE_SAIDA[formato];
-  return canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined);
 }
 
 // ------------------------------------------------------------- converter ---
@@ -91,6 +111,7 @@ export async function resizeImage(ctx: RunContext): Promise<RunResult> {
   const modo = String(ctx.options.modo ?? 'maior-lado');
   const aumentar = ctx.options.aumentar === true || ctx.options.aumentar === 'true';
   const ajuste = String(ctx.options.ajuste ?? 'cabe') as 'cabe' | 'preenche' | 'esticar';
+  const marcadas = lerRecortes(ctx.options.recorte);
 
   const dpi = Math.min(1200, Math.max(36, Number(ctx.options.dpi ?? 300)));
   const larguraMm = Math.max(1, Number(ctx.options.larguraMm ?? 100));
@@ -101,7 +122,13 @@ export async function resizeImage(ctx: RunContext): Promise<RunResult> {
   let aviso = '';
 
   const saidas = await porArquivo(ctx, async (imagem, arquivo) => {
-    const original = { largura: imagem.largura, altura: imagem.altura };
+    const marcada = marcadas.get(arquivo.id);
+    const area = marcada
+      ? limitar(marcada, { largura: imagem.largura, altura: imagem.altura })
+      : undefined;
+    const original = area
+      ? { largura: area.largura, altura: area.altura }
+      : { largura: imagem.largura, altura: imagem.altura };
 
     let desejada: Medida;
     if (modo === 'impressao') {
@@ -129,7 +156,7 @@ export async function resizeImage(ctx: RunContext): Promise<RunResult> {
 
     return {
       name: nomeNoFormato(arquivo.name, formato),
-      blob: await gravar(imagem, final, formato, qualidade),
+      blob: await gravar(imagem, final, formato, qualidade, area),
       pages: undefined,
     };
   });
@@ -145,6 +172,7 @@ export async function resizeImage(ctx: RunContext): Promise<RunResult> {
   } else {
     notas.push(`O maior lado ficou com ${pixels} px, e o outro acompanhou a proporção.`);
   }
+  if (marcadas.size) notas.push('Foi usada exatamente a área clara marcada na prévia.');
   if (aviso) notas.push(aviso);
 
   return entregar(ctx, saidas, 'imagens-redimensionadas', notas);

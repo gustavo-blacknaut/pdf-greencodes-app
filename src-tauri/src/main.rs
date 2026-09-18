@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use impressao::{OpcoesDeImpressao, Preparada, Sessoes};
@@ -398,47 +398,6 @@ fn abrir(app: AppHandle, caminho: String) -> Value {
     }
 }
 
-/// Abre numa janela do proprio programa.
-///
-/// O WebView2 tem leitor de PDF embutido, entao e so carregar o arquivo. Nao
-/// serve para imprimir - ali sairia a tela do leitor, e nao o documento -,
-/// mas para conferir o resultado esta de bom tamanho.
-///
-/// Precisa ser `async`: criar janela de dentro de um comando que roda na linha
-/// principal trava o Windows para sempre (wry#583).
-#[tauri::command]
-async fn abrir_aqui(app: AppHandle, caminho: String) -> Value {
-    if let Err(erro) = app.state::<Permitidos>().exigir(&caminho) {
-        return json!({ "ok": false, "erro": erro });
-    }
-    let alvo = Path::new(&caminho);
-
-    let titulo = alvo
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Documento")
-        .to_string();
-    let endereco = format!("file:///{}", caminho.replace('\\', "/"));
-    let Ok(url) = endereco.parse() else {
-        return abrir(app, caminho);
-    };
-
-    // Um rotulo por arquivo, e sem acento: o rotulo da janela vira nome de
-    // recurso interno e so aceita letras, numeros, hifen e sublinhado.
-    let rotulo = format!("leitor-{}", resultados::novo_id());
-
-    match WebviewWindowBuilder::new(&app, rotulo, WebviewUrl::External(url))
-        .title(titulo)
-        .inner_size(900.0, 1000.0)
-        .center()
-        .build()
-    {
-        Ok(_) => json!({ "ok": true, "caminho": caminho }),
-        // Driver de video antigo e politica de empresa conseguem impedir uma
-        // segunda janela. Nesse caso o programa padrao do sistema resolve.
-        Err(_) => abrir(app, caminho),
-    }
-}
 
 /// Abre no navegador padrao do sistema.
 #[tauri::command]
@@ -544,7 +503,7 @@ async fn motor_gravar_entrada(pedido: Request<'_>) -> Result<String, String> {
     let pasta = pasta_de_trabalho(&cabecalho(&pedido, "pasta").ok_or("faltou a pasta temporaria")?)?;
     let nome = cabecalho(&pedido, "nome").ok_or("faltou o nome do arquivo")?;
     em_segundo_plano(move || {
-        let destino = pasta.join(arquivos::nome_seguro(&nome));
+        let destino = arquivos::caminho_livre(&pasta, &arquivos::nome_seguro(&nome));
         arquivos::gravar(&destino, &bytes)?;
         Ok(destino.to_string_lossy().to_string())
     })
@@ -969,7 +928,6 @@ fn main() {
             escolher_arquivos,
             ler_arquivo,
             abrir,
-            abrir_aqui,
             abrir_no_navegador,
             revelar,
             abrir_pasta_dos_resultados,

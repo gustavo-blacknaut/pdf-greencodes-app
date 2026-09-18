@@ -52,7 +52,6 @@ export async function compress(ctx: RunContext): Promise<RunResult> {
   const preset = COMPRESSION_PRESETS[level] ?? COMPRESSION_PRESETS.impressao;
   const notes: string[] = [];
   const outputs: OutputFile[] = [];
-  const canvas = document.createElement('canvas');
 
   let inputBytes = 0;
   let outputBytes = 0;
@@ -67,23 +66,28 @@ export async function compress(ctx: RunContext): Promise<RunResult> {
 
     if (preset.dpi > 0) {
       const doc = await openWithPdfJs(source.bytes, source.senha);
-      const out = await PDFDocument.create();
-      for (let i = 1; i <= doc.numPages; i += 1) {
-        ctx.onProgress(
-          fileBase + (fileWeight * (i - 1)) / doc.numPages,
-          `${source.name}: página ${i} de ${doc.numPages}`,
-        );
-        const page = await doc.getPage(i);
-        const { widthPt, heightPt } = await renderPageToCanvas(page, preset.dpi, canvas);
-        const jpeg = await canvasToBlob(canvas, 'image/jpeg', preset.quality);
-        const embedded = await out.embedJpg(await jpeg.arrayBuffer());
-        const target = out.addPage([widthPt, heightPt]);
-        target.drawImage(embedded, { x: 0, y: 0, width: widthPt, height: heightPt });
-        page.cleanup();
-        await respirar(ctx);
+      const canvas = document.createElement('canvas');
+      try {
+        const out = await PDFDocument.create();
+        for (let i = 1; i <= doc.numPages; i += 1) {
+          ctx.onProgress(
+            fileBase + (fileWeight * (i - 1)) / doc.numPages,
+            `${source.name}: página ${i} de ${doc.numPages}`,
+          );
+          const page = await doc.getPage(i);
+          const { widthPt, heightPt } = await renderPageToCanvas(page, preset.dpi, canvas);
+          const jpeg = await canvasToBlob(canvas, 'image/jpeg', preset.quality);
+          const embedded = await out.embedJpg(await jpeg.arrayBuffer());
+          const target = out.addPage([widthPt, heightPt]);
+          target.drawImage(embedded, { x: 0, y: 0, width: widthPt, height: heightPt });
+          page.cleanup();
+          await respirar(ctx);
+        }
+        rasterized = await salvarPdf(out, source.senha);
+      } finally {
+        canvas.width = canvas.height = 0;
+        await doc.destroy();
       }
-      await doc.destroy();
-      rasterized = await salvarPdf(out, source.senha);
     }
 
     // O caminho do meio: as fotos encolhem e o resto fica. Arquivo com senha
@@ -202,27 +206,33 @@ async function redesenharComFiltro(
   const out = await PDFDocument.create();
   const canvas = document.createElement('canvas');
 
-  for (let i = 1; i <= doc.numPages; i += 1) {
-    ctx.onProgress((i - 1) / doc.numPages, `Página ${i} de ${doc.numPages}`);
-    const page = await doc.getPage(i);
-    const { widthPt, heightPt } = await renderPageToCanvas(page, dpi, canvas);
+  const paginas = doc.numPages;
+  try {
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      ctx.onProgress((i - 1) / doc.numPages, `Página ${i} de ${doc.numPages}`);
+      const page = await doc.getPage(i);
+      const { widthPt, heightPt } = await renderPageToCanvas(page, dpi, canvas);
 
-    const pincel = canvas.getContext('2d');
-    if (pincel) {
-      const imagem = pincel.getImageData(0, 0, canvas.width, canvas.height);
-      filtro(imagem.data);
-      pincel.putImageData(imagem, 0, 0);
+      const pincel = canvas.getContext('2d');
+      if (pincel) {
+        const imagem = pincel.getImageData(0, 0, canvas.width, canvas.height);
+        filtro(imagem.data);
+        pincel.putImageData(imagem, 0, 0);
+      }
+
+      const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.82);
+      const embutida = await out.embedJpg(await jpeg.arrayBuffer());
+      out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
+
+      page.cleanup();
+      await respirar(ctx);
     }
 
-    const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.82);
-    const embutida = await out.embedJpg(await jpeg.arrayBuffer());
-    out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
-
-    page.cleanup();
-    await respirar(ctx);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    await doc.destroy();
   }
-  const paginas = doc.numPages;
-  await doc.destroy();
 
   const blob = await salvarPdf(out, source.senha);
   ctx.onProgress(1);
@@ -449,35 +459,40 @@ export async function grayscale(ctx: RunContext): Promise<RunResult> {
   const out = await PDFDocument.create();
   const canvas = document.createElement('canvas');
 
-  for (let i = 1; i <= doc.numPages; i += 1) {
-    ctx.onProgress((i - 1) / doc.numPages, `Página ${i} de ${doc.numPages}`);
-    const page = await doc.getPage(i);
-    const { widthPt, heightPt } = await renderPageToCanvas(page, dpi, canvas);
+  try {
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      ctx.onProgress((i - 1) / doc.numPages, `Página ${i} de ${doc.numPages}`);
+      const page = await doc.getPage(i);
+      const { widthPt, heightPt } = await renderPageToCanvas(page, dpi, canvas);
 
-    const pincel = canvas.getContext('2d');
-    if (pincel) {
-      const imagem = pincel.getImageData(0, 0, canvas.width, canvas.height);
-      const dados = imagem.data;
-      for (let p = 0; p < dados.length; p += 4) {
-        // Luminância perceptual: verde pesa mais que vermelho, que pesa mais
-        // que azul. A média simples achata contraste e suja o texto.
-        const cinza = Math.round(0.2126 * dados[p] + 0.7152 * dados[p + 1] + 0.0722 * dados[p + 2]);
-        dados[p] = cinza;
-        dados[p + 1] = cinza;
-        dados[p + 2] = cinza;
+      const pincel = canvas.getContext('2d');
+      if (pincel) {
+        const imagem = pincel.getImageData(0, 0, canvas.width, canvas.height);
+        const dados = imagem.data;
+        for (let p = 0; p < dados.length; p += 4) {
+          // Luminância perceptual: verde pesa mais que vermelho, que pesa mais
+          // que azul. A média simples achata contraste e suja o texto.
+          const cinza = Math.round(0.2126 * dados[p] + 0.7152 * dados[p + 1] + 0.0722 * dados[p + 2]);
+          dados[p] = cinza;
+          dados[p + 1] = cinza;
+          dados[p + 2] = cinza;
+        }
+        if (comContraste) darContraste(dados);
+        pincel.putImageData(imagem, 0, 0);
       }
-      if (comContraste) darContraste(dados);
-      pincel.putImageData(imagem, 0, 0);
+
+      const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.82);
+      const embutida = await out.embedJpg(await jpeg.arrayBuffer());
+      out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
+
+      page.cleanup();
+      await respirar(ctx);
     }
-
-    const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.82);
-    const embutida = await out.embedJpg(await jpeg.arrayBuffer());
-    out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
-
-    page.cleanup();
-    await respirar(ctx);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    await doc.destroy();
   }
-  await doc.destroy();
 
   const blob = await salvarPdf(out, source.senha);
   ctx.onProgress(1);

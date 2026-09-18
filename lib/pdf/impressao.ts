@@ -77,25 +77,33 @@ export async function prepararParaImpressao(
       // está em primeiro plano esse agendamento não roda — a promessa do
       // desenho nunca resolvia e a impressão ficava em "Enviando..." para
       // sempre.
-      await renderPageToCanvas(atual, dpiDaPagina, pagina);
+      // A impressão já limita a memória por pixels. O teto de 4200 usado
+      // pelas ferramentas reduzia uma A4 de 600 para cerca de 359 DPI.
+      await renderPageToCanvas(atual, dpiDaPagina, pagina, 16384);
       atual.cleanup();
 
       desenharFolha(pagina, arte, montagem, folha);
+      // O raster da página já foi copiado para a folha. Libera antes da
+      // codificação para não somar as duas telas ao buffer do JPEG.
+      pagina.width = 0;
+      pagina.height = 0;
 
       const jpeg = await new Promise<Blob | null>((resolve) =>
         folha.toBlob(resolve, 'image/jpeg', 0.95),
       );
       if (!jpeg) throw new Error('Não foi possível converter a folha para imprimir.');
+      folha.width = 0;
+      folha.height = 0;
 
       await enviarFolha(i, await jpeg.arrayBuffer());
       onProgresso?.(i, doc.numPages);
     }
     return doc.numPages;
   } finally {
-    await doc.destroy();
     pagina.width = 0;
     pagina.height = 0;
     folha.width = 0;
     folha.height = 0;
+    await doc.destroy();
   }
 }

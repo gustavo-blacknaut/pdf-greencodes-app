@@ -24,15 +24,19 @@ PAPEIS: Dict[str, Tuple[float, float]] = {
     "A5": (419.53, 595.28),
     "carta": (612, 792),
     "oficio": (612, 1008),
+    "Letter": (215.9 * PONTOS_POR_MM, 279.4 * PONTOS_POR_MM),
+    "Legal": (216 * PONTOS_POR_MM, 356 * PONTOS_POR_MM),
+    "Tabloid": (279 * PONTOS_POR_MM, 432 * PONTOS_POR_MM),
 }
 
 # Quantas páginas por folha, e em que grade cada quantidade vira.
 GRADES: Dict[int, Tuple[int, int]] = {
-    2: (1, 2),
+    2: (2, 1),
     4: (2, 2),
     6: (2, 3),
     8: (2, 4),
     9: (3, 3),
+    12: (3, 4),
     16: (4, 4),
 }
 
@@ -60,7 +64,7 @@ def _encaixe(destino: pymupdf.Rect, origem: pymupdf.Rect) -> pymupdf.Rect:
 
 
 def varias_por_folha(pedido: Pedido) -> Dict[str, Any]:
-    """Junta 2, 4, 6, 8, 9 ou 16 páginas numa folha só.
+    """Junta 2, 4, 6, 8, 9, 12 ou 16 páginas numa folha só.
 
     Economiza papel em rascunho e em prova de leitura. A ordem é a de leitura:
     esquerda para a direita, de cima para baixo.
@@ -74,8 +78,8 @@ def varias_por_folha(pedido: Pedido) -> Dict[str, Any]:
         raise ErroDoUsuario(f"não sei montar {por_folha} por folha; use {', '.join(map(str, GRADES))}")
 
     colunas, linhas = grade
-    margem = float(pedido.opcao("margem", 8)) * PONTOS_POR_MM
-    espaco = float(pedido.opcao("espaco", 4)) * PONTOS_POR_MM
+    margem = max(0, min(30, float(pedido.opcao("margem", 0)))) * PONTOS_POR_MM
+    espaco = max(0, min(30, float(pedido.opcao("espaco", 0)))) * PONTOS_POR_MM
     borda = bool(pedido.opcao("borda", False))
 
     origem = pedido.arquivos[0]
@@ -99,6 +103,8 @@ def varias_por_folha(pedido: Pedido) -> Dict[str, Any]:
 
             util_x = (largura_folha - 2 * margem - (colunas - 1) * espaco) / colunas
             util_y = (altura_folha - 2 * margem - (linhas - 1) * espaco) / linhas
+            if util_x <= 0 or util_y <= 0:
+                raise ErroDoUsuario("as margens e os espacos nao deixam area para as paginas")
 
             for posicao in range(por_folha):
                 indice = comeco + posicao
@@ -114,7 +120,14 @@ def varias_por_folha(pedido: Pedido) -> Dict[str, Any]:
                     margem + linha * (util_y + espaco) + util_y,
                 )
 
-                folha.show_pdf_page(_encaixe(quadro, entrada[indice].rect), entrada, indice)
+                pagina = entrada[indice]
+                # Aplica /Rotate no desenho para os dois motores verem a
+                # mesma página. Continua vetorial, sem converter em imagem.
+                pagina.remove_rotation()
+                girar = (quadro.width > quadro.height) != (pagina.rect.width > pagina.rect.height)
+                medida = pymupdf.Rect(0, 0, pagina.rect.height, pagina.rect.width) if girar else pagina.rect
+                if pagina.get_contents():
+                    folha.show_pdf_page(_encaixe(quadro, medida), entrada, indice, rotate=90 if girar else 0)
                 if borda:
                     folha.draw_rect(quadro, color=(0.75, 0.75, 0.75), width=0.4)
 

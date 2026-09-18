@@ -20,6 +20,7 @@ import { loadPdfJs, loadPdfLib } from './lazy';
 export async function respirar(ctx: RunContext): Promise<void> {
   abortarSePreciso(ctx.signal);
   await yieldToBrowser();
+  abortarSePreciso(ctx.signal);
 }
 
 export const MAX_RASTER_EDGE = 4200;
@@ -95,13 +96,20 @@ export async function openWithPdfLib(bytes: ArrayBuffer, password = '') {
 
 export async function openWithPdfJs(bytes: ArrayBuffer, password?: string) {
   const pdfjs = await loadPdfJs();
-  const abrir = (senha: string) =>
-    pdfjs.getDocument({
+  const abrir = async (senha: string) => {
+    const tarefa = pdfjs.getDocument({
       data: copy(bytes),
       useSystemFonts: true,
       isEvalSupported: false,
       ...(senha ? { password: senha } : {}),
-    }).promise;
+    });
+    try {
+      return await tarefa.promise;
+    } catch (erro) {
+      await tarefa.destroy().catch(() => {});
+      throw erro;
+    }
+  };
 
   let ultimoErro: unknown = null;
   for (const tentativa of variantesDeSenha(password ?? '')) {
@@ -164,11 +172,12 @@ export async function renderPageToCanvas(
   page: Awaited<ReturnType<Awaited<ReturnType<typeof openWithPdfJs>>['getPage']>>,
   dpi: number,
   canvas: HTMLCanvasElement,
+  limiteDaAresta = MAX_RASTER_EDGE,
 ) {
   const base = page.getViewport({ scale: 1 });
   let scale = dpi / 72;
   const longestEdge = Math.max(base.width, base.height) * scale;
-  if (longestEdge > MAX_RASTER_EDGE) scale *= MAX_RASTER_EDGE / longestEdge;
+  if (longestEdge > limiteDaAresta) scale *= limiteDaAresta / longestEdge;
 
   const viewport = page.getViewport({ scale });
   canvas.width = Math.max(1, Math.floor(viewport.width));

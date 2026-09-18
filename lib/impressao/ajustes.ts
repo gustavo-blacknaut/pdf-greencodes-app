@@ -12,6 +12,8 @@
  * só, aplicada nos dois lugares, é o que garante que o papel saia igual.
  */
 
+import { afiarPorLinhas } from './nitidez';
+
 export type Ajustes = {
   /** -100 a 100. Soma luz, sem mexer no contraste. */
   brilho: number;
@@ -101,6 +103,7 @@ export const luminancia = (r: number, g: number, b: number) => 0.2126 * r + 0.71
  * está consertando.
  */
 export function pintarPixels(pixels: Uint8ClampedArray, a: Ajustes): void {
+  if (!a.brilho && !a.contraste && !a.saturacao && !a.temperatura && !a.exposicao && !a.cinza) return;
   const [tr, tg, tb] = tabelasDeCor(a);
   const satura = 1 + limitar(a.saturacao, -100, 100) / 100;
   const mexeNaSaturacao = a.cinza || satura !== 1;
@@ -143,56 +146,7 @@ export function afiar(
   pixelsPorMm: number,
 ): void {
   if (forca <= 0 || largura < 3 || altura < 3) return;
-  const raio = raioDaNitidez(pixelsPorMm);
-  const borrado = borrarEmCaixa(pixels, largura, altura, raio);
-  const quanto = limitar(forca, 0, 100) / 100;
-
-  for (let i = 0; i < pixels.length; i += 4) {
-    for (let c = 0; c < 3; c += 1) {
-      const original = pixels[i + c];
-      pixels[i + c] = original + (original - borrado[i + c]) * quanto * 1.5;
-    }
-  }
-}
-
-/**
- * Borrão de caixa, separado em duas passadas com soma corrente.
- *
- * O custo não depende do raio: é o que permite borrar uma folha de 35
- * megapixels sem a janela parar.
- */
-function borrarEmCaixa(pixels: Uint8ClampedArray, largura: number, altura: number, raio: number): Uint8ClampedArray {
-  const meio = new Float32Array(pixels.length);
-  const saida = new Uint8ClampedArray(pixels.length);
-  const janela = raio * 2 + 1;
-
-  for (let y = 0; y < altura; y += 1) {
-    const linha = y * largura * 4;
-    for (let c = 0; c < 3; c += 1) {
-      let soma = 0;
-      for (let x = -raio; x <= raio; x += 1) soma += pixels[linha + limitar(x, 0, largura - 1) * 4 + c];
-      for (let x = 0; x < largura; x += 1) {
-        meio[linha + x * 4 + c] = soma / janela;
-        const sai = linha + limitar(x - raio, 0, largura - 1) * 4 + c;
-        const entra = linha + limitar(x + raio + 1, 0, largura - 1) * 4 + c;
-        soma += pixels[entra] - pixels[sai];
-      }
-    }
-  }
-
-  for (let x = 0; x < largura; x += 1) {
-    for (let c = 0; c < 3; c += 1) {
-      let soma = 0;
-      for (let y = -raio; y <= raio; y += 1) soma += meio[limitar(y, 0, altura - 1) * largura * 4 + x * 4 + c];
-      for (let y = 0; y < altura; y += 1) {
-        saida[y * largura * 4 + x * 4 + c] = soma / janela;
-        const sai = limitar(y - raio, 0, altura - 1) * largura * 4 + x * 4 + c;
-        const entra = limitar(y + raio + 1, 0, altura - 1) * largura * 4 + x * 4 + c;
-        soma += meio[entra] - meio[sai];
-      }
-    }
-  }
-  return saida;
+  afiarPorLinhas(pixels, largura, altura, raioDaNitidez(pixelsPorMm), limitar(forca, 0, 100) / 100);
 }
 
 /** Tudo junto, sobre os pixels de uma imagem já desenhada. */

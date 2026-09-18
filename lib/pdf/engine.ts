@@ -51,8 +51,12 @@ import {
 import { addBleed, foldMarks, frenteEVerso, posterTiles, stampImage } from './operacoes/grafica-extra';
 import { gerarCodigoBarras, gerarQrCode } from './operacoes/codigos';
 import { criarCarimbo } from './operacoes/carimbo';
+import { calibrarImpressao, separarPorTamanho } from './operacoes/conferencia';
+import { padronizarOrientacao, relatorioPaginas } from './operacoes/preparacao';
 import { rodarNoPython, temMotorPython } from './motor-python';
 import type { LoadedFile, ProgressFn, RunContext, RunResult } from './tipos';
+import { abortarSePreciso } from './guards';
+import { nomesUnicos } from './resultados';
 import { formatBytes } from '../utils';
 
 /* A interface importa tudo daqui, então o que ela usa é reexportado. */
@@ -72,6 +76,10 @@ export { FORMATOS_MM, mmParaPt, zipFiles } from './nucleo';
 export { POR_FOLHA } from './operacoes/organizar';
 
 export const OPERATIONS = {
+  'normalize-orientation': padronizarOrientacao,
+  'page-report': relatorioPaginas,
+  'print-calibration': calibrarImpressao,
+  'split-by-size': separarPorTamanho,
   compress,
   merge,
   split,
@@ -193,15 +201,31 @@ export async function abrirNaMemoria(arquivo: LoadedFile, onProgress?: ProgressF
 }
 
 export async function runOperation(id: OperationId, ctx: RunContext): Promise<RunResult> {
+  abortarSePreciso(ctx.signal);
   const operation = OPERATIONS[id];
   if (!operation) throw new Error(`Ferramenta desconhecida: ${id}`);
 
   // No aplicativo, as ferramentas que rasterizam página vão para o motor
   // Python: medido, 277 ms por página contra 1189 do pdf.js. No site
   // `temMotorPython` é sempre falso e nada muda.
-  const resultado = temMotorPython(id, ctx)
+  let resultado = temMotorPython(id, ctx)
     ? await rodarNoPython(id, ctx)
     : await operation(await trazerParaAMemoria(ctx));
+  abortarSePreciso(ctx.signal);
+  if (id === 'merge' && ['sem-perda', 'alta'].includes(String(ctx.options.compressaoApos))) {
+    const files: LoadedFile[] = [];
+    for (const [indice, arquivo] of resultado.files.entries()) {
+      files.push({ id: `unido-${indice}`, name: arquivo.name, type: 'application/pdf',
+        bytes: arquivo.caminho ? new ArrayBuffer(0) : await arquivo.blob.arrayBuffer(),
+        caminho: arquivo.caminho, size: arquivo.tamanho ?? arquivo.blob.size,
+        pageCount: arquivo.pages ?? null, thumbnail: null, senha: ctx.files.find(f => f.senha)?.senha });
+    }
+    const comprimido = await runOperation('compress', { ...ctx, files,
+      options: { level: String(ctx.options.compressaoApos) } });
+    resultado = { ...comprimido, inputBytes: resultado.inputBytes,
+      notes: [...resultado.notes, ...comprimido.notes, 'Compressão após a junção aplicada conforme sua escolha.'] };
+  }
+  resultado.files = nomesUnicos(resultado.files);
 
   // `salvarPdf` devolve a senha ao resultado. O aviso fica aqui, num lugar só,
   // em vez de repetido em cada operação. Proteger e desbloquear ficam de fora:

@@ -28,11 +28,8 @@ export async function decodificarImagem(arquivo: {
   bytes: ArrayBuffer;
   type?: string;
 }): Promise<Decodificada> {
-  // Uma cópia dos bytes: o Blob passa a ser dono do buffer, e o original
-  // ainda é usado depois — no `juntar`, o mesmo arquivo pode ser desenhado
-  // mais de uma vez.
-  const copia = arquivo.bytes.slice(0);
-  let dados: Blob = new Blob([copia], { type: arquivo.type || 'application/octet-stream' });
+  // Blob já copia o conteúdo; slice antes dele duplicava o arquivo na RAM.
+  let dados: Blob = new Blob([arquivo.bytes], { type: arquivo.type || 'application/octet-stream' });
 
   if (HEIC.test(arquivo.name) || arquivo.type === 'image/heic' || arquivo.type === 'image/heif') {
     const { heicTo } = await import('heic-to');

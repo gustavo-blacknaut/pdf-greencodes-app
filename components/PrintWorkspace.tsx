@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useColarArquivos } from './useColarArquivos';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
@@ -28,6 +29,7 @@ import {
   filaTerminada,
   guardarOpcoes,
   lerOpcoesSalvas,
+  opcoesParaFolhaMontada,
   proximoId,
 } from './impressao/fila';
 import { AjustesDaImagem } from './impressao/AjustesDaImagem';
@@ -36,13 +38,15 @@ import { OpcoesDeImpressao } from './impressao/OpcoesDeImpressao';
 import { PreviaDaPagina, type FolhaNaTela } from './impressao/PreviaDaPagina';
 import type { EstadoDoItem, ItemFila } from './impressao/tipos';
 import { usePrevia } from './impressao/usePrevia';
+import { prepararSaida } from './impressao/prepararSaida';
+import { fatiarParaImpressao } from './impressao/lotes';
 import { AJUSTES_NEUTROS, ajustesDe, type Ajustes } from '@/lib/impressao/ajustes';
 import { avisoDaFolha } from '@/lib/impressao/folha';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
 import { inspectFile, runOperation } from '@/lib/pdf/engine';
-import { loadPdfJs, loadPdfLib } from '@/lib/pdf/lazy';
-import { validarFila } from '@/lib/pdf/guards';
+import { openWithPdfJs } from '@/lib/pdf/nucleo';
+import { validarFila, usarLimitesDoAplicativo } from '@/lib/pdf/guards';
 import {
   aoSoltarArquivos,
   estaNoAplicativo,
@@ -79,6 +83,7 @@ export function PrintWorkspace() {
     id: string;
     porFolha: number;
     intervalo: string;
+    papel: string;
     blob: Blob;
     paginas: number;
   } | null>(null);
@@ -108,8 +113,14 @@ export function PrintWorkspace() {
     [item?.ajustes, opcoes.colorido],
   );
   const opcoesDaFolha = useMemo<OpcoesImpressao>(
-    () => ({ ...opcoes, bordaMm: bordaDaImpressora }),
-    [opcoes, bordaDaImpressora],
+    () => ({
+      ...opcoes,
+      bordaMm: bordaDaImpressora,
+      // A montagem já cria a folha na orientação final. Girar de novo aqui
+      // encolhia o "2 por folha" dentro de uma folha no sentido contrário.
+      ...(porFolha > 1 ? { orientacao: 'auto' as const, paisagem: false } : {}),
+    }),
+    [opcoes, bordaDaImpressora, porFolha],
   );
   const montagem = useMemo(() => ({ ...montagemDe(opcoesDaFolha), ajustes }), [opcoesDaFolha, ajustes]);
 
@@ -119,6 +130,7 @@ export function PrintWorkspace() {
   const telaRef = useRef<HTMLCanvasElement>(null);
   const molduraRef = useRef<HTMLDivElement>(null);
   const convertendoRef = useRef(false);
+  const fonteRecebidaRef = useRef<string | null>(null);
   /*
    * O desenho da folha, visto de dentro do efeito que renderiza.
    *
@@ -133,9 +145,9 @@ export function PrintWorkspace() {
   // mudança de estado, e um item novo com o mesmo conteúdo reabria o
   // documento no meio do desenho — a prévia ficava em branco.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const saida = useMemo(() => paraSaida(item), [item?.id, item?.blob, montado, porFolha, intervalo]);
+  const saida = useMemo(() => paraSaida(item), [item?.id, item?.blob, montado, porFolha, intervalo, opcoes.papel]);
 
-  const { pagina, setPagina, renderizando, escalaAtual, arteMm } = usePrevia({
+  const { pagina, setPagina, renderizando, escalaAtual, arteMm, erro: erroPrevia } = usePrevia({
     saida,
     zoom,
     larguraDisponivel,
@@ -163,6 +175,7 @@ export function PrintWorkspace() {
 
   useEffect(() => {
     setNoApp(estaNoAplicativo());
+    usarLimitesDoAplicativo(estaNoAplicativo());
     setOpcoes(lerOpcoesSalvas());
     void listarImpressoras().then((lista) => {
       setImpressoras(lista);
@@ -216,7 +229,9 @@ export function PrintWorkspace() {
           arquivos.map((a) => ({ name: a.name, size: tamanhoDe(a) })),
           ficam.map((i) => ({ size: i.origem.size })),
         );
-        adicionar(await Promise.all(arquivos.map(materializar)));
+        const lidos: File[] = [];
+        for (const arquivo of arquivos) lidos.push(await materializar(arquivo));
+        adicionar(lidos);
       } catch (e) {
         setErroGeral(e instanceof Error ? e.message : 'Arquivos recusados.');
       }
@@ -224,13 +239,17 @@ export function PrintWorkspace() {
     [adicionar],
   );
 
+  useColarArquivos(receberArquivos, imprimindo === null);
+
   // Soltar na janela do aplicativo: vem o caminho, como no seletor.
   useEffect(
     () =>
       aoSoltarArquivos((lista) => {
         void (async () => {
           try {
-            receberArquivos(await Promise.all(lista.map(lerArquivoEscolhido)));
+            const arquivos: File[] = [];
+            for (const caminho of lista) arquivos.push(await lerArquivoEscolhido(caminho));
+            await receberArquivos(arquivos);
           } catch (e) {
             setErroGeral(e instanceof Error ? e.message : 'Não foi possível ler o arquivo.');
           }
@@ -242,7 +261,7 @@ export function PrintWorkspace() {
   /** Arquivos vindos de outra ferramenta, guardados no cofre. */
   useEffect(() => {
     const fonte = parametros.get('fonte');
-    if (!fonte) return;
+    if (!fonte || fonteRecebidaRef.current === fonte) return;
     const entrada = vault.get(fonte);
     if (!entrada?.files.length) {
       setErroGeral('O resultado expirou ou já foi apagado da memória. Escolha os arquivos de novo.');
@@ -251,10 +270,15 @@ export function PrintWorkspace() {
     const alvo = parametros.get('arquivo');
     const escolhidos = alvo ? entrada.files.filter((f) => f.name === alvo) : entrada.files;
     const lista = escolhidos.length ? escolhidos : entrada.files;
+    fonteRecebidaRef.current = fonte;
+    if (parametros.get('escala') === 'original') {
+      setOpcoes((atuais) => opcoesParaFolhaMontada(atuais, parametros.get('papel')));
+    }
     adicionar(
       lista.map((f) => f.blob),
       lista.map((f) => f.name),
     );
+    vault.purge(fonte, 'saiu');
     // Só na montagem: depois disso quem manda é a fila na tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -299,10 +323,9 @@ export function PrintWorkspace() {
           nomeFinal = replaceExtension(alvo.nomeOriginal, 'pdf');
         }
 
-        const pdfjs = await loadPdfJs();
-        const doc = await pdfjs.getDocument({ data: new Uint8Array(await pdf.arrayBuffer()) }).promise;
-        const paginas = doc.numPages;
-        await doc.destroy();
+        const doc = await openWithPdfJs(await pdf.arrayBuffer());
+        let paginas: number;
+        try { paginas = doc.numPages; } finally { await doc.destroy(); }
 
         atualizar({ estado: 'pronto', blob: pdf, paginas, nome: nomeFinal });
         atividade.fechar(tarefaConv, 'concluida', `${paginas} página(s)`);
@@ -331,12 +354,11 @@ export function PrintWorkspace() {
       montado &&
       montado.id === alvo.id &&
       montado.porFolha === porFolha &&
+      montado.papel === (opcoes.papel ?? 'A4') &&
       montado.intervalo === intervalo
     ) {
       return { blob: montado.blob, paginas: montado.paginas };
     }
-    // Enquanto a montagem não termina, não vale desenhar o original: a
-    // prévia mostraria uma coisa e a impressora sairia com outra.
     // Enquanto o preparo não termina, não vale desenhar o original: a prévia
     // mostraria uma coisa e a impressora sairia com outra.
     return porFolha > 1 || intervalo.trim() ? null : { blob: alvo.blob, paginas: alvo.paginas };
@@ -357,17 +379,22 @@ export function PrintWorkspace() {
     const semPreparo = porFolha <= 1 && !intervalo.trim();
     if (!item?.blob || semPreparo) {
       setMontado(null);
+      setMontando(false);
       return;
     }
-    if (montado?.id === item.id && montado.porFolha === porFolha && montado.intervalo === intervalo) return;
+    if (montado?.id === item.id && montado.porFolha === porFolha && montado.intervalo === intervalo && montado.papel === (opcoes.papel ?? 'A4')) {
+      setMontando(false);
+      return;
+    }
 
     let vivo = true;
-    void (async () => {
-      setMontando(true);
+    const cancelamento = new AbortController();
+    setMontando(true);
+    const espera = window.setTimeout(() => void (async () => {
       try {
-        const { blob, paginas } = await prepararSaida(item, porFolha, intervalo);
+        const { blob, paginas } = await prepararSaida(item, porFolha, intervalo, opcoes.papel, cancelamento.signal);
         if (!vivo) return;
-        setMontado({ id: item.id, porFolha, intervalo, blob, paginas });
+        setMontado({ id: item.id, porFolha, intervalo, papel: opcoes.papel ?? 'A4', blob, paginas });
         setErroGeral(null);
       } catch (e) {
         if (!vivo) return;
@@ -376,13 +403,15 @@ export function PrintWorkspace() {
       } finally {
         if (vivo) setMontando(false);
       }
-    })();
+    })(), 200);
 
     return () => {
       vivo = false;
+      window.clearTimeout(espera);
+      cancelamento.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, item?.blob, porFolha, intervalo]);
+  }, [item?.id, item?.blob, porFolha, intervalo, opcoes.papel]);
 
   // A prévia acompanha o tamanho da janela: sem isso ela fica pequena no
   // monitor grande e estourada no pequeno.
@@ -407,7 +436,7 @@ export function PrintWorkspace() {
       observador.disconnect();
       window.removeEventListener('resize', medir);
     };
-  }, [item?.id]);
+  }, [item?.id, saida?.blob]);
 
   function mudar<K extends keyof OpcoesImpressao>(chave: K, valor: OpcoesImpressao[K]) {
     setOpcoes((atual) => ({ ...atual, [chave]: valor }));
@@ -431,34 +460,6 @@ export function PrintWorkspace() {
   }
 
   /**
-   * Fatia um PDF em blocos de N páginas, na ordem.
-   *
-   * Documento grande num único trabalho é o que trava fila de impressora em
-   * rede de 100 Mbps: o spool recebe dezenas de megabytes de uma vez e a
-   * impressora fica sem resposta até digerir tudo. Em blocos, cada um cabe na
-   * memória dela e a próxima parte só sai depois que a anterior entrou.
-   */
-  async function fatiar(blob: Blob, paginas: number, tamanho: number): Promise<Blob[]> {
-    if (tamanho <= 0 || paginas <= tamanho) return [blob];
-
-    const { PDFDocument } = await loadPdfLib();
-    const origem = await PDFDocument.load(await blob.arrayBuffer());
-    const partes: Blob[] = [];
-
-    for (let inicio = 0; inicio < paginas; inicio += tamanho) {
-      const indices = Array.from(
-        { length: Math.min(tamanho, paginas - inicio) },
-        (_, k) => inicio + k,
-      );
-      const parte = await PDFDocument.create();
-      for (const pagina of await parte.copyPages(origem, indices)) parte.addPage(pagina);
-      const bytes = await parte.save({ useObjectStreams: true });
-      partes.push(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }));
-    }
-    return partes;
-  }
-
-  /**
    * Manda a fila inteira, um arquivo por vez, e cada arquivo em lotes quando
    * está configurado assim. A ordem é sempre a da fila e a das páginas.
    *
@@ -476,69 +477,79 @@ export function PrintWorkspace() {
     let trabalhos = 0;
     let cancelou = false;
 
-    for (const alvo of prontos) {
-      setImprimindo(alvo.id);
-      const tarefa = atividade.abrir(`Imprimir ${alvo.nomeOriginal}`, 'impressao');
-      atividade.registrar(
-        tarefa,
-        `${opcoes.impressora ?? 'impressora padrão'} · ${opcoes.papel} · ${montagem.dpi} DPI · ${opcoes.colorido === false ? 'preto e branco' : 'colorido'}`,
-        0,
-      );
-      // A montagem da prévia só existe para o arquivo que está nela. Os outros
-      // da fila são preparados aqui, com as mesmas páginas e o mesmo arranjo —
-      // antes eles eram pulados em silêncio.
-      let saida = paraSaida(alvo);
-      if (!saida) {
-        try {
-          saida = await prepararSaida(alvo, porFolha, intervalo);
-        } catch (e) {
-          const erro = e instanceof Error ? e.message : 'Não foi possível preparar as páginas.';
-          setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'erro', erro } : i)));
-          atividade.fechar(tarefa, 'erro', erro);
-          continue;
-        }
-      }
-
-      let falhou: string | undefined;
-      const partes = await fatiar(saida.blob, saida.paginas, lote);
-
-      for (let n = 0; n < partes.length; n += 1) {
-        const nome = partes.length > 1 ? alvo.nome.replace(/.pdf$/i, `-parte${n + 1}.pdf`) : alvo.nome;
-        const paraEste = { ...opcoesDaFolha, ajustes: ajustesDe(alvo.ajustes) };
-        const r = await imprimirArquivo(nome, partes[n], paraEste, (feitas, total) =>
-          atividade.registrar(
-            tarefa,
-            `Desenhando página ${feitas} de ${total}` + (partes.length > 1 ? ` (lote ${n + 1}/${partes.length})` : ''),
-            feitas / total,
-          ),
+    try {
+      for (const alvo of prontos) {
+        setImprimindo(alvo.id);
+        const tarefa = atividade.abrir(`Imprimir ${alvo.nomeOriginal}`, 'impressao');
+        atividade.registrar(
+          tarefa,
+          `${opcoes.impressora ?? 'impressora padrão'} · ${opcoes.papel} · ${montagem.dpi} DPI · ${opcoes.colorido === false ? 'preto e branco' : 'colorido'}`,
+          0,
         );
+        // A montagem da prévia só existe para o arquivo que está nela. Os outros
+        // da fila são preparados aqui, com as mesmas páginas e o mesmo arranjo —
+        // antes eles eram pulados em silêncio.
+        let saida = paraSaida(alvo);
+        if (!saida) {
+          try {
+            saida = await prepararSaida(alvo, porFolha, intervalo, opcoes.papel);
+          } catch (e) {
+            const erro = e instanceof Error ? e.message : 'Não foi possível preparar as páginas.';
+            setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'erro', erro } : i)));
+            atividade.fechar(tarefa, 'erro', erro);
+            continue;
+          }
+        }
 
-        if (r.cancelado) {
-          cancelou = true;
-          atividade.fechar(tarefa, 'cancelada');
-          break;
+        let falhou: string | undefined;
+        let totalPartes = 0;
+
+        try {
+          for await (const parte of fatiarParaImpressao(saida.blob, lote)) {
+            totalPartes = parte.total;
+            const nome = parte.total > 1 ? alvo.nome.replace(/\.pdf$/i, `-parte${parte.indice}.pdf`) : alvo.nome;
+            const paraEste = { ...opcoesDaFolha, ajustes: ajustesDe(alvo.ajustes) };
+            const r = await imprimirArquivo(nome, parte.blob, paraEste, (feitas, total) =>
+              atividade.registrar(
+                tarefa,
+                `Desenhando página ${feitas} de ${total}` + (parte.total > 1 ? ` (lote ${parte.indice}/${parte.total})` : ''),
+                feitas / total,
+              ),
+            );
+
+            if (r.cancelado) {
+              cancelou = true;
+              atividade.fechar(tarefa, 'cancelada');
+              break;
+            }
+            if (!r.ok) {
+              falhou = r.erro || 'A impressora não confirmou o envio.';
+              break;
+            }
+            trabalhos += 1;
+          }
+        } catch (erro) {
+          falhou = erro instanceof Error ? erro.message : 'Não foi possível enviar este arquivo.';
         }
-        if (!r.ok) {
-          falhou = r.erro;
-          break;
+
+        if (cancelou) break;
+        if (falhou) {
+          setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'erro', erro: falhou } : i)));
+          atividade.fechar(tarefa, 'erro', falhou);
+        } else {
+          enviados += 1;
+          // Só a quantidade: folhas e cópias, nunca o nome do arquivo.
+          registrarUso({ tipo: 'impressao', folhas: saida.paginas, copias: opcoes.copias ?? 1 });
+          setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'impresso' } : i)));
+          atividade.fechar(tarefa, 'concluida', `${totalPartes} trabalho(s) na impressora`);
         }
-        trabalhos += 1;
       }
 
-      if (cancelou) break;
-      if (falhou) {
-        setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'erro', erro: falhou } : i)));
-        atividade.fechar(tarefa, 'erro', falhou);
-      } else {
-        enviados += 1;
-        // Só a quantidade: folhas e cópias, nunca o nome do arquivo.
-        registrarUso({ tipo: 'impressao', folhas: saida.paginas, copias: opcoes.copias ?? 1 });
-        setFila((atual) => atual.map((i) => (i.id === alvo.id ? { ...i, estado: 'impresso' } : i)));
-        atividade.fechar(tarefa, 'concluida', `${partes.length} trabalho(s) na impressora`);
-      }
+    } catch (e) {
+      setErroGeral(e instanceof Error ? e.message : 'Não foi possível concluir a impressão.');
+    } finally {
+      setImprimindo(null);
     }
-
-    setImprimindo(null);
     const emLotes = trabalhos > enviados ? ` em ${trabalhos} lotes` : '';
     setAviso(
       cancelou
@@ -597,10 +608,10 @@ export function PrintWorkspace() {
         </div>
       </header>
 
-      {erroGeral && (
+      {(erroGeral || erroPrevia) && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{erroGeral}</span>
+          <span>{erroGeral || erroPrevia}</span>
         </div>
       )}
 
@@ -657,7 +668,7 @@ export function PrintWorkspace() {
           </div>
 
           <OpcoesDeImpressao
-            opcoes={opcoes}
+            opcoes={opcoesDaFolha}
             impressoras={impressoras}
             noApp={noApp}
             intervalo={intervalo}
@@ -671,7 +682,12 @@ export function PrintWorkspace() {
             aviso={aviso}
             onMudar={mudar}
             onIntervalo={setIntervalo}
-            onPorFolha={setPorFolha}
+            onPorFolha={(quantidade) => {
+              setPorFolha(quantidade);
+              // A montagem já reduziu cada página. Não reduza a folha pronta
+              // outra vez, ou as duas metades deixam de ter tamanho A5.
+              if (quantidade > 1) mudar('escala', 'original');
+            }}
             onLote={setLote}
             onImprimir={() => void imprimirTudo()}
             onLimpar={limparFila}
@@ -681,46 +697,4 @@ export function PrintWorkspace() {
       )}
     </div>
   );
-}
-
-/**
- * Escolhe as páginas e monta as folhas de um arquivo da fila.
- *
- * Nessa ordem, e não na contrária: escolher "1-4" com 4 por folha tem que dar
- * uma folha com as quatro primeiras páginas, não a primeira folha de um
- * documento já montado.
- */
-async function prepararSaida(
-  alvo: ItemFila,
-  porFolha: number,
-  intervalo: string,
-): Promise<{ blob: Blob; paginas: number }> {
-  if (!alvo.blob) throw new Error('O arquivo ainda não está pronto.');
-  let blob: Blob = alvo.blob;
-
-  if (intervalo.trim()) {
-    const carregado = await inspectFile(new File([blob], alvo.nome, { type: 'application/pdf' }), alvo.id);
-    const r = await runOperation('split', {
-      files: [carregado],
-      options: { mode: 'extract', extractRanges: intervalo },
-      onProgress: () => {},
-    });
-    blob = r.files[0].blob;
-  }
-
-  if (porFolha > 1) {
-    const carregado = await inspectFile(new File([blob], alvo.nome, { type: 'application/pdf' }), alvo.id);
-    const r = await runOperation('n-up', {
-      files: [carregado],
-      options: { perSheet: porFolha, espacamentoMm: 2, margemMm: 4, border: false },
-      onProgress: () => {},
-    });
-    blob = r.files[0].blob;
-  }
-
-  const pdfjs = await loadPdfJs();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
-  const paginas = doc.numPages;
-  await doc.destroy();
-  return { blob, paginas };
 }

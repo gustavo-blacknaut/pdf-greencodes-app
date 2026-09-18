@@ -51,7 +51,7 @@ const COMPRIME = new Set(['.html', '.js', '.mjs', '.css', '.json', '.txt', '.svg
 const SEGURANCA = {
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
@@ -162,7 +162,9 @@ const servidor = http.createServer(async (req, res) => {
     }
 
     const leitura = fs.createReadStream(arquivo);
-    const saida = codificacao === 'br' ? zlib.createBrotliCompress() : codificacao === 'gzip' ? zlib.createGzip() : null;
+    const saida = codificacao === 'br'
+      ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
+      : codificacao === 'gzip' ? zlib.createGzip() : null;
 
     if (saida) pipeline(leitura, saida, res, () => {});
     else pipeline(leitura, res, () => {});

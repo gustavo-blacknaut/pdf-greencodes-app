@@ -151,7 +151,7 @@ export function OpcoesDeImpressao({
           onChange={(e) => onPorFolha(Number(e.target.value))}
         >
           <option value="1">1 — uma por folha</option>
-          <option value="2">2 — folha deitada</option>
+          <option value="2">2 — duas A5 em uma A4 (papel A4)</option>
           <option value="4">4 — grade 2 x 2</option>
           <option value="6">6 — grade 2 x 3</option>
           <option value="8">8 — grade 2 x 4</option>
@@ -161,7 +161,9 @@ export function OpcoesDeImpressao({
         </select>
         {porFolha > 1 && (
           <p className="mt-1.5 text-[11px] text-muted">
-            {montando ? 'Montando a prévia...' : 'A prévia acima já mostra as folhas montadas.'}
+            {montando
+              ? 'Montando a prévia...'
+              : 'A folha pronta acompanha o papel escolhido. Em A4, duas páginas ocupam as duas metades A5, sem margem extra. A orientação é automática.'}
           </p>
         )}
       </div>
@@ -200,7 +202,7 @@ export function OpcoesDeImpressao({
           onChange={(e) => onMudar('papel', e.target.value as OpcoesImpressao['papel'])}
         >
           <option value="A4">A4 · 210 × 297 mm</option>
-          <option value="Letter">Carta · 216 × 279 mm</option>
+          <option value="Letter">Carta · 215,9 × 279,4 mm</option>
           <option value="Legal">Ofício · 216 × 356 mm</option>
           <option value="A3">A3 · 297 × 420 mm</option>
           <option value="A5">A5 · 148 × 210 mm</option>
@@ -443,6 +445,7 @@ export function OpcoesDeImpressao({
             <button
               key={valor}
               type="button"
+              disabled={porFolha > 1}
               onClick={() => {
                 onMudar('orientacao', valor);
                 onMudar('paisagem', valor === 'paisagem');
@@ -457,7 +460,7 @@ export function OpcoesDeImpressao({
           ))}
         </div>
         <p className="mt-1 text-[11px] leading-relaxed text-muted">
-          Automática deita a folha quando a página ou a foto é mais larga que alta, uma a uma.
+          {porFolha > 1 ? 'A orientação já faz parte da montagem mostrada na prévia.' : 'Automática deita a folha quando a página ou a foto é mais larga que alta, uma a uma.'}
         </p>
       </div>
     </div>
@@ -465,7 +468,7 @@ export function OpcoesDeImpressao({
     <button
       type="button"
       onClick={onImprimir}
-      disabled={!prontos || Boolean(imprimindo) || preparando}
+      disabled={!prontos || Boolean(imprimindo) || preparando || montando}
       className="btn-primary mt-5 w-full py-3"
     >
       {imprimindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}

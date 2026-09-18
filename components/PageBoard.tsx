@@ -18,6 +18,7 @@ import { renderPageThumbnails, type LoadedFile, type PagePlanItem } from '@/lib/
 import { LIMITES } from '@/lib/pdf/guards';
 import type { BoardMode } from '@/lib/tools';
 import { cx } from '@/lib/utils';
+import { useArrastePaginas } from './useArrastePaginas';
 
 /**
  * Uma página na grade.
@@ -68,8 +69,7 @@ export function PageBoard({
   const [marked, setMarked] = useState<Set<string>>(() => new Set());
   const [loaded, setLoaded] = useState(0);
   const [falhaMiniaturas, setFalhaMiniaturas] = useState(false);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [angulo, setAngulo] = useState(90);
 
   const comMiniatura = Math.min(total, LIMITES.miniaturas);
 
@@ -140,6 +140,10 @@ export function PageBoard({
     });
   }, []);
 
+  const arraste = useArrastePaginas(move);
+  const dragIndex = arraste.origem;
+  const overIndex = arraste.destino;
+
   function rotatePage(position: number, delta: number) {
     setPages((current) =>
       current.map((page, i) =>
@@ -209,7 +213,7 @@ export function PageBoard({
         : mode === 'rotate'
           ? (() => {
               const n = pages.filter((page) => page.rotate).length;
-              return n === 0 ? `${total} páginas · clique para girar` : `${n} de ${total} giradas`;
+              return n === 0 ? `${total} páginas · selecione e escolha o giro` : `${n} de ${total} giradas`;
             })()
           : `${pages.length} páginas${brancas ? `, ${brancas} em branco` : ''}${
               files.length > 1 ? ` · ${files.length} arquivos` : ''
@@ -261,7 +265,7 @@ export function PageBoard({
             </>
           )}
 
-          {(mode === 'organize' || mode === 'rotate') && (
+          {mode === 'organize' && (
             <>
               <button
                 type="button"
@@ -284,7 +288,7 @@ export function PageBoard({
             </>
           )}
 
-          {(mode === 'remove' || mode === 'keep') && (
+          {(mode === 'remove' || mode === 'keep' || mode === 'rotate') && (
             <button
               type="button"
               onClick={() =>
@@ -299,6 +303,17 @@ export function PageBoard({
             </button>
           )}
 
+          {mode === 'rotate' && (
+            <>
+              <select aria-label="Ângulo de rotação" value={angulo} onChange={e => setAngulo(Number(e.target.value))} className="rounded border bg-bg px-2 text-sm">
+                <option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option>
+              </select>
+              <button type="button" disabled={!marked.size} className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
+                onClick={() => setPages(atual => atual.map(p => marked.has(p.uid) ? { ...p, rotate: (p.rotate + angulo) % 360 } : p))}>
+                Girar {marked.size} selecionada(s)
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={resetAll}
@@ -322,10 +337,10 @@ export function PageBoard({
         </div>
       )}
 
-      <ul className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      <ul ref={arraste.lista} className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {pages.map((page, position) => {
           const isMarked = marked.has(page.uid);
-          const highlight = (mode === 'remove' && isMarked) || (mode === 'keep' && isMarked);
+          const highlight = isMarked;
           const rotulo = page.branco ? 'folha em branco' : `página ${page.index + 1}`;
 
           const tile = (
@@ -445,40 +460,32 @@ export function PageBoard({
           return (
             <li
               key={page.uid}
-              draggable={mode === 'organize'}
-              onDragStart={() => mode === 'organize' && setDragIndex(position)}
-              onDragEnd={() => {
-                setDragIndex(null);
-                setOverIndex(null);
-              }}
-              onDragOver={(event) => {
-                if (mode !== 'organize' || dragIndex === null || dragIndex === position) return;
-                event.preventDefault();
-                setOverIndex(position);
-              }}
-              onDrop={(event) => {
-                if (mode !== 'organize') return;
-                event.preventDefault();
-                if (dragIndex !== null && dragIndex !== position) move(dragIndex, position);
-                setDragIndex(null);
-                setOverIndex(null);
+              data-pagina-posicao={position}
+              tabIndex={mode === 'organize' ? 0 : undefined}
+              onPointerDown={(event) => mode === 'organize' && arraste.iniciar(event, position)}
+              onKeyDown={(event) => {
+                if (mode !== 'organize' || !event.altKey) return;
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  move(position, position + (event.key === 'ArrowLeft' ? -1 : 1));
+                }
               }}
               className={cx(
                 'group relative rounded-xl border bg-bg/40 p-2 transition',
-                mode === 'organize' && 'cursor-grab active:cursor-grabbing',
+                mode === 'organize' && 'touch-none select-none cursor-grab active:cursor-grabbing',
                 dragIndex === position && 'opacity-40',
                 overIndex === position && 'border-brand ring-2 ring-brand/30',
-                highlight && mode === 'keep' && 'border-brand ring-2 ring-brand/30',
+                highlight && (mode === 'keep' || mode === 'rotate') && 'border-brand ring-2 ring-brand/30',
                 highlight && mode === 'remove' && 'border-rose-500/60',
               )}
             >
               {clickable ? (
                 <button
                   type="button"
-                  onClick={() => (mode === 'rotate' ? rotatePage(position, 90) : toggleMark(page.uid))}
+                  onClick={() => (toggleMark(page.uid))}
                   className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                  aria-pressed={mode === 'rotate' ? undefined : isMarked}
-                  aria-label={mode === 'rotate' ? `Girar ${rotulo}` : `${isMarked ? 'Desmarcar' : 'Marcar'} ${rotulo}`}
+                  aria-pressed={isMarked}
+                  aria-label={`${isMarked ? 'Desmarcar' : 'Marcar'} ${rotulo}`}
                 >
                   {tile}
                 </button>
@@ -489,6 +496,13 @@ export function PageBoard({
           );
         })}
       </ul>
+      {dragIndex !== null && pages[dragIndex] && (
+        <div ref={arraste.previa} aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-50 w-28 rounded-lg border border-brand bg-white p-2 shadow-xl">
+          {pages[dragIndex].thumb && <img src={pages[dragIndex].thumb!} alt="" className="max-h-36 w-full object-contain" style={{ transform: `rotate(${pages[dragIndex].rotate}deg)` }} />}
+          <span className="text-xs text-slate-800">Página {pages[dragIndex].index + 1}</span>
+        </div>
+      )}
+      {mode === 'organize' && <p className="px-4 pb-3 text-xs text-muted">Arraste para ordenar. No teclado: Alt + ← ou → move a página focada.</p>}
     </div>
   );
 }

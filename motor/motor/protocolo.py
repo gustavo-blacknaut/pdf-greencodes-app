@@ -107,7 +107,24 @@ def atender(entrada: Iterable[str], acoes: Dict[str, Callable[[Pedido], Dict[str
             _escrever({"id": "", "tipo": "erro", "erro": f"JSON invalido: {erro}", "classe": "JSONDecodeError"})
             continue
 
-        pedido = Pedido(bruto, _escrever)
+        try:
+            if not isinstance(bruto, dict):
+                raise ValueError("o pedido precisa ser um objeto JSON")
+            if not isinstance(bruto.get("acao", ""), str):
+                raise ValueError("a acao precisa ser texto")
+            if not isinstance(bruto.get("opcoes", {}), dict):
+                raise ValueError("as opcoes precisam ser um objeto")
+            for campo in ("arquivos", "senhas"):
+                valores = bruto.get(campo, [])
+                if not isinstance(valores, list) or not all(isinstance(v, str) for v in valores):
+                    raise ValueError(f"{campo} precisa ser uma lista de textos")
+            if not isinstance(bruto.get("saida", ""), str):
+                raise ValueError("a saida precisa ser texto")
+            pedido = Pedido(bruto, _escrever)
+        except (TypeError, ValueError) as erro:
+            identificador = str(bruto.get("id", "")) if isinstance(bruto, dict) else ""
+            _escrever({"id": identificador, "tipo": "erro", "erro": str(erro), "classe": "PedidoInvalido"})
+            continue
 
         if pedido.acao == "encerrar":
             _escrever({"id": pedido.id, "tipo": "fim", "dados": {}})

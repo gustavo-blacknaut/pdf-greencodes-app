@@ -15,9 +15,11 @@ import { split } from './operacoes/organizar';
 import { type LoadedFile, type PaginaParaEditor } from './tipos';
 
 export async function imageThumbnail(file: File): Promise<string | null> {
+  let bitmap: ImageBitmap | undefined;
+  let canvas: HTMLCanvasElement | undefined;
   try {
-    const bitmap = await createImageBitmap(file);
-    const canvas = document.createElement('canvas');
+    bitmap = await createImageBitmap(file);
+    canvas = document.createElement('canvas');
     const scale = Math.min(1, 220 / Math.max(bitmap.width, bitmap.height));
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -26,10 +28,12 @@ export async function imageThumbnail(file: File): Promise<string | null> {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
     return canvas.toDataURL('image/jpeg', 0.7);
   } catch {
     return null;
+  } finally {
+    bitmap?.close();
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
   }
 }
 
@@ -83,7 +87,7 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
 
   const nomeMinusculo = base.name.toLowerCase();
   // .docx, .xlsx e .pptx sao o mesmo pacote zip de XML por dentro.
-  const ehOfficePeloNome = /\.(docx|xlsx|pptx)$/.test(nomeMinusculo);
+  const ehOfficePeloNome = /\.(docx|xls|xlsx|xlsm|pptx)$/.test(nomeMinusculo);
   const ehTxtPeloNome = nomeMinusculo.endsWith('.txt');
 
   const ehImagem = pareceSerImagem(nomeMinusculo, base.type);
@@ -105,7 +109,9 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
   }
 
   if (ehOfficePeloNome) {
-    if (!pareceMesmoDocx(bytes)) {
+    const assinatura = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 8));
+    const xlsAntigo = nomeMinusculo.endsWith('.xls') && [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((b, i) => assinatura[i] === b);
+    if (!pareceMesmoDocx(bytes) && !xlsAntigo) {
       return { ...base, error: `Este arquivo tem extensão ${base.name.split('.').pop()} mas o conteúdo não é um documento do Office válido.` };
     }
     return { ...base, pageCount: null };
@@ -117,13 +123,16 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
 
   try {
     const doc = await openWithPdfJs(bytes);
-    const page = await doc.getPage(1);
     const canvas = document.createElement('canvas');
-    await renderPageToCanvas(page, 48, canvas);
-    const thumbnail = canvas.toDataURL('image/jpeg', 0.7);
-    const pageCount = doc.numPages;
-    await doc.destroy();
-    return { ...base, pageCount, thumbnail };
+    try {
+      const page = await doc.getPage(1);
+      await renderPageToCanvas(page, 48, canvas);
+      return { ...base, pageCount: doc.numPages, thumbnail: canvas.toDataURL('image/jpeg', 0.7) };
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+      await doc.destroy();
+    }
   } catch (error) {
     if (isPasswordError(error)) {
       return { ...base, locked: true, error: 'Protegido por senha' };
@@ -155,9 +164,9 @@ export async function desbloquearArquivo(arquivo: LoadedFile, senha: string): Pr
     );
   }
 
+  const canvas = document.createElement('canvas');
   try {
     const page = await doc.getPage(1);
-    const canvas = document.createElement('canvas');
     await renderPageToCanvas(page, 48, canvas);
     page.cleanup();
     return {
@@ -169,6 +178,8 @@ export async function desbloquearArquivo(arquivo: LoadedFile, senha: string): Pr
       thumbnail: canvas.toDataURL('image/jpeg', 0.7),
     };
   } finally {
+    canvas.width = 0;
+    canvas.height = 0;
     await doc.destroy();
   }
 }
@@ -192,11 +203,14 @@ export async function renderPageThumbnails(
       if (cancelToken.cancelled) return;
       const page = await doc.getPage(i);
       await renderPageToCanvas(page, 36, canvas);
+      if (cancelToken.cancelled) return;
       onPage(i - 1, canvas.toDataURL('image/jpeg', 0.72), doc.numPages);
       page.cleanup();
       await yieldToBrowser();
     }
   } finally {
+    canvas.width = 0;
+    canvas.height = 0;
     await doc.destroy();
   }
 }
@@ -216,13 +230,13 @@ export async function renderPaginaParaEditor(
   larguraAlvo = 1000,
 ): Promise<PaginaParaEditor> {
   const doc = await openWithPdfJs(bytes);
+  const canvas = document.createElement('canvas');
   try {
     const page = await doc.getPage(indice + 1);
     const base = page.getViewport({ scale: 1, rotation: 0 });
     const escala = Math.min(2, larguraAlvo / base.width);
     const viewport = page.getViewport({ scale: escala, rotation: 0 });
 
-    const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -241,6 +255,8 @@ export async function renderPaginaParaEditor(
     page.cleanup();
     return resultado;
   } finally {
+    canvas.width = 0;
+    canvas.height = 0;
     await doc.destroy();
   }
 }

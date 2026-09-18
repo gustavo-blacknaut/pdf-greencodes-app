@@ -25,6 +25,9 @@ async function xlsxDeTeste(): Promise<ArrayBuffer> {
 
   const zip = new JSZip();
   zip.file('xl/workbook.xml', workbook);
+  zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>');
+  zip.file('xl/_rels/workbook.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+
   zip.file('xl/sharedStrings.xml', sharedStrings);
   zip.file('xl/worksheets/sheet1.xml', sheet);
   const bytes = await zip.generateAsync({ type: 'uint8array' });

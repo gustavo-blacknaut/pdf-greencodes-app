@@ -56,6 +56,13 @@ class EphemeralVault {
     return this.entries.get(id);
   }
 
+  /** Transfere a referência ao blob sem depender da vida da tela de origem. */
+  transfer(id: string, fileName: string): VaultEntry {
+    const file = this.entries.get(id)?.files.find((item) => item.name === fileName);
+    if (!file) throw new Error('Este resultado já foi apagado. Gere o arquivo novamente.');
+    return this.store([file]);
+  }
+
   store(files: OutputFile[], ttlMs = DEFAULT_TTL_MS): VaultEntry {
     const id = `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const now = Date.now();
@@ -92,7 +99,7 @@ class EphemeralVault {
     if (!file) throw new Error('Arquivo não encontrado neste resultado.');
 
     const url = URL.createObjectURL(file.blob);
-    this.urls.set(`${id}:${fileName}`, url);
+    this.urls.set(`${id}:${url}`, url);
 
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -108,7 +115,7 @@ class EphemeralVault {
     // revogarmos a URL; 4s é folgado e ainda assim imperceptível.
     setTimeout(() => {
       URL.revokeObjectURL(url);
-      this.urls.delete(`${id}:${fileName}`);
+      this.urls.delete(`${id}:${url}`);
       if (options.purgeAfter) this.purge(id, 'baixado');
       else this.emit();
     }, 4000);

@@ -12,12 +12,12 @@
  * (1/72 de polegada) acontece só na hora de desenhar.
  */
 
-import { desenharPaginaDeImagem, mmParaPt, openWithPdfLib, salvarPdf } from '../nucleo';
-import { pareceSerImagem } from '../guards';
+import { desenharPaginaDeImagem, mmParaPt, salvarPdf, senhaDaFila } from '../nucleo';
 import type { Ajuste, RunContext, RunResult } from '../tipos';
 import { replaceExtension, suffixName, yieldToBrowser } from '../../utils';
 import { loadPdfLib } from '../lazy';
-import { folhaEmPontos, ligado, limitar, semGiro } from './grafica';
+import { folhaEmPontos, ligado, limitar } from './grafica';
+import { prepararArtes } from './artes-etiquetas';
 
 const PT_POR_MM = 72 / 25.4;
 const emMm = (pt: number) => Math.round((pt / PT_POR_MM) * 10) / 10;
@@ -100,10 +100,11 @@ export const MODELOS_DE_ETIQUETA = {
     linhas: 6,
     largura: 42.33,
     altura: 42.33,
-    esquerda: 10.58,
-    topo: 12.7,
-    passoX: 50.8,
-    passoY: 44.45,
+    // Medidas conferidas na folha física: o passo soma a etiqueta ao vão.
+    esquerda: 7.976,
+    topo: 7.976,
+    passoX: 42.33 + 10.211,
+    passoY: 42.33 + 1.981,
     redonda: true,
   },
 } as const;
@@ -130,7 +131,7 @@ async function arteDaImagem(
   const { PDFDocument } = await loadPdfLib();
   const out = await PDFDocument.create();
   const bitmap = await createImageBitmap(
-    new Blob([imagem.bytes.slice(0)], { type: imagem.type || 'image/jpeg' }),
+    new Blob([imagem.bytes], { type: imagem.type || 'image/jpeg' }),
   );
   const canvas = document.createElement('canvas');
   try {
@@ -166,10 +167,6 @@ async function imporGrade(
 ): Promise<RunResult> {
   const { PDFDocument, rgb } = await loadPdfLib();
   const source = ctx.files[0];
-  const arte = pareceSerImagem(source.name, source.type)
-    ? await arteDaImagem(source, config.itemL, config.itemA, ctx.options)
-    : source.bytes;
-  const doc = await semGiro(await openWithPdfLib(arte, source.senha));
 
   const folha = folhaEmPontos(ctx.options);
   const margem = mmParaPt(limitar(ctx.options.margemMm, 0, 50, 5));
@@ -188,8 +185,8 @@ async function imporGrade(
 
   const porFolha = grade.colunas * grade.linhas;
   const out = await PDFDocument.create();
-  const embutidas = await out.embedPages(doc.getPages());
-  if (embutidas.length === 0) throw new Error('O documento não tem páginas.');
+  const embutidas = await prepararArtes(ctx, out, porFolha,
+    (arquivo) => arteDaImagem(arquivo, config.itemL, config.itemA, ctx.options));
 
   const preto = rgb(0, 0, 0);
   const comprimento = mmParaPt(3);
@@ -214,6 +211,7 @@ async function imporGrade(
   const totalFolhas = sequencia ? Math.ceil(embutidas.length / porFolha) : embutidas.length;
 
   for (let f = 0; f < totalFolhas; f += 1) {
+    ctx.signal?.throwIfAborted();
     ctx.onProgress(f / totalFolhas, `Folha ${f + 1}/${totalFolhas}`);
     const pagina = out.addPage([folha.largura, folha.altura]);
 
@@ -267,7 +265,7 @@ async function imporGrade(
     await yieldToBrowser();
   }
 
-  const blob = await salvarPdf(out, source.senha);
+  const blob = await salvarPdf(out, senhaDaFila(ctx.files));
   ctx.onProgress(1);
 
   const cabem = `${grade.colunas} x ${grade.linhas} = ${porFolha} por folha`;
@@ -292,8 +290,10 @@ async function imporGrade(
     files: [
       { name: replaceExtension(suffixName(source.name, config.sufixo), 'pdf'), blob, pages: out.getPageCount() },
     ],
-    inputBytes: source.size,
+    inputBytes: ctx.files.reduce((soma, arquivo) => soma + arquivo.size, 0),
     outputBytes: blob.size,
+    papelImpressao: ({ a3: 'A3', a4: 'A4', a5: 'A5', carta: 'Letter', oficio: 'Legal' } as const)
+      [String(ctx.options.papel ?? 'a4') as 'a3' | 'a4' | 'a5' | 'carta' | 'oficio'] ?? 'A4',
     notes: notas,
   };
 }
@@ -350,14 +350,11 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
   const source = ctx.files[0];
   const itemL = mmParaPt(modelo.largura);
   const itemA = mmParaPt(modelo.altura);
-  const arte = pareceSerImagem(source.name, source.type)
-    ? await arteDaImagem(source, itemL, itemA, { ...ctx.options, ajusteDaImagem: modelo.redonda ? 'preencher' : ctx.options.ajusteDaImagem })
-    : source.bytes;
-
-  const doc = await semGiro(await openWithPdfLib(arte, source.senha));
   const out = await PDFDocument.create();
-  const embutidas = await out.embedPages(doc.getPages());
-  if (embutidas.length === 0) throw new Error('O documento não tem páginas.');
+  const porFolha = modelo.colunas * modelo.linhas;
+  const embutidas = await prepararArtes(ctx, out, porFolha,
+    (arquivo) => arteDaImagem(arquivo, itemL, itemA,
+      { ...ctx.options, ajusteDaImagem: modelo.redonda ? 'preencher' : ctx.options.ajusteDaImagem }));
 
   const folha = { largura: mmParaPt(FOLHA_CARTA.largura), altura: mmParaPt(FOLHA_CARTA.altura) };
   const desloca = {
@@ -365,12 +362,16 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
     y: mmParaPt(limitar(ctx.options.deslocaYmm, -10, 10, 0)),
   };
   const conferir = ligado(ctx.options.conferir, false);
+  const e6093 = modelo === MODELOS_DE_ETIQUETA['6093'];
+  const borda = e6093 ? mmParaPt(limitar(ctx.options.bordaEsquerdaMm, 0, 10, 2)) : 0;
+  const alturaArte = itemA + (e6093 ? mmParaPt(limitar(ctx.options.alturaArteMm, -10, 4, 0)) : 0);
+  const larguraArte = itemL - borda;
   const sequencia = String(ctx.options.modo ?? 'repetir') === 'sequencia';
 
-  const porFolha = modelo.colunas * modelo.linhas;
   const totalFolhas = sequencia ? Math.ceil(embutidas.length / porFolha) : embutidas.length;
 
   for (let f = 0; f < totalFolhas; f += 1) {
+    ctx.signal?.throwIfAborted();
     ctx.onProgress(f / totalFolhas, `Folha ${f + 1}/${totalFolhas}`);
     const pagina = out.addPage([folha.largura, folha.altura]);
 
@@ -380,7 +381,9 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
 
       const coluna = i % modelo.colunas;
       const linha = Math.floor(i / modelo.colunas);
-      const x = mmParaPt(modelo.esquerda) + coluna * mmParaPt(modelo.passoX) + desloca.x;
+      const correcaoColuna = e6093 && coluna > 0
+        ? mmParaPt(limitar(ctx.options[`coluna${coluna + 1}Mm`], -5, 5, 0)) : 0;
+      const x = mmParaPt(modelo.esquerda) + coluna * mmParaPt(modelo.passoX) + desloca.x + correcaoColuna;
       // O PDF conta de baixo para cima; a folha de etiqueta, de cima para baixo.
       const y = folha.altura - mmParaPt(modelo.topo) - linha * mmParaPt(modelo.passoY) - itemA - desloca.y;
 
@@ -404,13 +407,26 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
         );
       }
 
-      // Redonda enche a etiqueta; retangular cabe inteira, com o que sobrar
-      // virando borda.
+      // A borda interna muda a área da arte, sem alterar a posição do picote.
+      // Um segundo recorte mantém a borda livre mesmo ao ampliar a altura.
+      if (modelo.redonda && (borda > 0 || alturaArte !== itemA)) {
+        const rx = larguraArte / 2;
+        const ry = alturaArte / 2;
+        const cx = x + borda + rx;
+        const cy = y + itemA / 2;
+        const k = 0.5523;
+        pagina.pushOperators(moveTo(cx - rx, cy),
+          appendBezierCurve(cx - rx, cy + ry * k, cx - rx * k, cy + ry, cx, cy + ry),
+          appendBezierCurve(cx + rx * k, cy + ry, cx + rx, cy + ry * k, cx + rx, cy),
+          appendBezierCurve(cx + rx, cy - ry * k, cx + rx * k, cy - ry, cx, cy - ry),
+          appendBezierCurve(cx - rx * k, cy - ry, cx - rx, cy - ry * k, cx - rx, cy),
+          closePath(), clip(), endPath());
+      }
       const escala = modelo.redonda
-        ? Math.max(itemL / item.width, itemA / item.height)
+        ? Math.max(larguraArte / item.width, alturaArte / item.height)
         : Math.min(itemL / item.width, itemA / item.height);
       pagina.drawPage(item, {
-        x: x + (itemL - item.width * escala) / 2,
+        x: x + borda + (larguraArte - item.width * escala) / 2,
         y: y + (itemA - item.height * escala) / 2,
         xScale: escala,
         yScale: escala,
@@ -432,14 +448,15 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
     await yieldToBrowser();
   }
 
-  const blob = await salvarPdf(out, source.senha);
+  const blob = await salvarPdf(out, senhaDaFila(ctx.files));
   ctx.onProgress(1);
   return {
     files: [
       { name: replaceExtension(suffixName(source.name, 'etiquetas'), 'pdf'), blob, pages: out.getPageCount() },
     ],
-    inputBytes: source.size,
+    inputBytes: ctx.files.reduce((soma, arquivo) => soma + arquivo.size, 0),
     outputBytes: blob.size,
+    papelImpressao: 'Letter',
     notes: [
       `${modelo.nome}: ${modelo.colunas} x ${modelo.linhas} = ${porFolha} por folha, etiqueta de ${modelo.etiqueta}, folha Carta.`,
       'Imprima em tamanho real, sem "ajustar à página": o ajuste encolhe tudo e a arte sai fora do picote.',

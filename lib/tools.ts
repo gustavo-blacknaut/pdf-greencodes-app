@@ -9,6 +9,7 @@
 import { CARIMBO } from './ferramentas/carimbo';
 import { CODIGOS } from './ferramentas/codigos';
 import { CONVERTER } from './ferramentas/converter';
+import { CONFERENCIA } from './ferramentas/conferencia';
 import { EDITAR } from './ferramentas/editar';
 import { ETIQUETAS } from './ferramentas/etiquetas';
 import { GRAFICA } from './ferramentas/grafica';
@@ -41,6 +42,10 @@ export const ORDEM = [
   'marcas-de-corte',
   'cartao-de-visita',
   'etiquetas',
+  'calibrar-impressao',
+  'separar-por-tamanho',
+  'padronizar-orientacao',
+  'relatorio-paginas',
   'gerar-qrcode',
   'gerar-codigo-barras',
   'numeracao-sequencial',
@@ -107,6 +112,7 @@ export const ORDEM = [
 
 const CATALOGO = [
   ...CONVERTER,
+  ...CONFERENCIA,
   ...OTIMIZAR,
   ...ORGANIZAR,
   ...EDITAR,

@@ -8,13 +8,14 @@ import { parsePageRange, suffixName, yieldToBrowser } from '../../utils';
 import { pareceSerImagem } from '../guards';
 import { decodificarImagem } from '../../imagem/decodificar';
 import { loadPdfLib } from '../lazy';
+import { semGiro } from './grafica';
+import { folhaEmMm } from '../../impressao/layout';
 
 export async function merge(ctx: RunContext): Promise<RunResult> {
   const { PDFDocument } = await loadPdfLib();
   const out = await PDFDocument.create();
   let inputBytes = 0;
 
-  const canvas = document.createElement('canvas');
   const formatoImagem = String(ctx.options.formatoImagem ?? 'a4');
   const fundoBranco = ctx.options.fundoBranco !== false && ctx.options.fundoBranco !== 'false';
   let imagens = 0;
@@ -32,13 +33,18 @@ export async function merge(ctx: RunContext): Promise<RunResult> {
       // só pelo tipo — o diálogo do Windows entrega `File.type` vazio, e era
       // isso que fazia um PNG ser recusado com "Formato não suportado".
       const imagem = await decodificarImagem(source);
+      const canvas = document.createElement('canvas');
+      try {
       const pagina =
         formatoImagem === 'imagem'
           ? { largura: imagem.largura, altura: imagem.altura, seguirImagem: true }
           : tamanhoDaPagina({ formato: 'a4', orientacao: 'auto' }, imagem.largura, imagem.altura);
       await desenharPaginaDeImagem(out, canvas, imagem.bitmap, pagina, 0, 'proporcao');
-      imagem.bitmap.close();
       imagens += 1;
+      } finally {
+        imagem.bitmap.close();
+        canvas.width = canvas.height = 0;
+      }
     } else {
       const doc = await openWithPdfLib(source.bytes, source.senha);
       const indices = doc.getPageIndices();
@@ -71,30 +77,13 @@ export async function merge(ctx: RunContext): Promise<RunResult> {
   const senha = senhaDaFila(ctx.files);
   const montado = await salvarPdf(out, senha);
 
-  /*
-   * Juntar é onde a repetição aparece: cada arquivo traz a sua cópia do
-   * timbre, da fonte, do logo. Compactar aqui deduplica tudo isso sem tocar
-   * em nada do que está desenhado — medido, cinco cópias de um PDF de 3 KB
-   * caem de 13 KB para 3 KB.
-   *
-   * No site esta chamada devolve o arquivo como veio: o pdf-lib não sabe
-   * deduplicar, e prometer o que não se faz seria pior que não fazer.
-   */
-  ctx.onProgress(0.97, 'Compactando sem perder qualidade');
-  const { compactarSemPerda } = await import('../motor-python');
-  const blob = await compactarSemPerda(montado, senha);
+  const blob = montado;
   ctx.onProgress(1);
 
   const notes: string[] = [];
   if (imagens > 0) notes.push(`${imagens} ${imagens === 1 ? 'imagem virou página' : 'imagens viraram páginas'}.`);
-  if (blob.size < montado.size) {
-    const economia = Math.round((1 - blob.size / montado.size) * 100);
-    notes.push(
-      `O arquivo foi compactado sem perder nada: ${economia}% menor só por não repetir o que os documentos ` +
-        'tinham em comum. Nenhuma imagem foi reduzida e nenhuma cor mudou.',
-    );
-  }
-  if (ctx.files.some((f) => f.senha)) notes.push('O arquivo unido saiu sem senha.');
+
+
 
   return {
     files: [{ name: `${name}.pdf`, blob, pages: out.getPageCount() }],
@@ -400,7 +389,7 @@ export async function applyPlan(ctx: RunContext): Promise<RunResult> {
  * cela espremida e sobra de papel nas laterais.
  */
 export const GRADES: Record<number, { colunas: number; linhas: number; deitada: boolean }> = {
-  2: { colunas: 1, linhas: 2, deitada: true },
+  2: { colunas: 2, linhas: 1, deitada: true },
   4: { colunas: 2, linhas: 2, deitada: false },
   6: { colunas: 2, linhas: 3, deitada: false },
   8: { colunas: 2, linhas: 4, deitada: false },
@@ -413,9 +402,9 @@ export const GRADES: Record<number, { colunas: number; linhas: number; deitada: 
 export const POR_FOLHA = Object.keys(GRADES).map(Number);
 
 export async function nUp(ctx: RunContext): Promise<RunResult> {
-  const { PDFDocument, rgb } = await loadPdfLib();
+  const { PDFDocument, rgb, degrees } = await loadPdfLib();
   const source = ctx.files[0];
-  const doc = await openWithPdfLib(source.bytes, source.senha);
+  const doc = await semGiro(await openWithPdfLib(source.bytes, source.senha));
 
   const pedido = Number(ctx.options.perSheet ?? 2);
   const porFolha = GRADES[pedido] ? pedido : 2;
@@ -430,36 +419,48 @@ export async function nUp(ctx: RunContext): Promise<RunResult> {
   const border = ctx.options.border === true || ctx.options.border === 'true';
 
   const out = await PDFDocument.create();
-  const embedded = await out.embedPages(doc.getPages());
-  const [a4w, a4h] = PAGE_SIZES.a4;
-  const folhaL = deitada ? a4h : a4w;
-  const folhaA = deitada ? a4w : a4h;
+  const paginas = doc.getPages();
+  const papel = folhaEmMm(String(ctx.options.papel ?? 'A4'), deitada);
+  const folhaL = mmParaPt(papel.largura);
+  const folhaA = mmParaPt(papel.altura);
 
   const celaL = (folhaL - margem * 2 - gap * (colunas - 1)) / colunas;
   const celaA = (folhaA - margem * 2 - gap * (linhas - 1)) / linhas;
+  if (celaL <= 0 || celaA <= 0) throw new Error('As margens e os espaços não deixam área para as páginas. Reduza essas medidas.');
 
-  for (let inicio = 0; inicio < embedded.length; inicio += porFolha) {
-    ctx.onProgress(inicio / embedded.length, `Folha ${Math.floor(inicio / porFolha) + 1}`);
+  for (let inicio = 0; inicio < paginas.length; inicio += porFolha) {
+    ctx.onProgress(inicio / paginas.length, `Folha ${Math.floor(inicio / porFolha) + 1}`);
+    // Lotes pequenos deixam a interface responder durante documentos longos.
+    const embedded = [];
+    for (const pagina of paginas.slice(inicio, inicio + porFolha)) {
+      embedded.push(pagina.node.Contents() ? await out.embedPage(pagina) : null);
+    }
     const folha = out.addPage([folhaL, folhaA]);
 
-    for (let vaga = 0; vaga < porFolha && inicio + vaga < embedded.length; vaga += 1) {
-      const item = embedded[inicio + vaga];
+    for (let vaga = 0; vaga < embedded.length; vaga += 1) {
+      const item = embedded[vaga];
       const coluna = vaga % colunas;
       const linha = Math.floor(vaga / colunas);
       const x = margem + coluna * (celaL + gap);
       // A leitura começa em cima, mas o eixo Y do PDF cresce para cima.
       const y = folhaA - margem - (linha + 1) * celaA - linha * gap;
 
-      const proporcao = Math.min(celaL / item.width, celaA / item.height);
-      const larg = item.width * proporcao;
-      const alt = item.height * proporcao;
+      if (item) {
+        const girar = (celaL > celaA) !== (item.width > item.height);
+        const largura = girar ? item.height : item.width;
+        const altura = girar ? item.width : item.height;
+        const proporcao = Math.min(celaL / largura, celaA / altura);
+        const larg = largura * proporcao;
+        const alt = altura * proporcao;
 
-      folha.drawPage(item, {
-        x: x + (celaL - larg) / 2,
-        y: y + (celaA - alt) / 2,
-        xScale: proporcao,
-        yScale: proporcao,
-      });
+        folha.drawPage(item, {
+          x: x + (celaL - larg) / 2 + (girar ? larg : 0),
+          y: y + (celaA - alt) / 2,
+          xScale: proporcao,
+          yScale: proporcao,
+          rotate: degrees(girar ? 90 : 0),
+        });
+      }
 
       if (border) {
         folha.drawRectangle({
@@ -472,7 +473,7 @@ export async function nUp(ctx: RunContext): Promise<RunResult> {
         });
       }
     }
-    await yieldToBrowser();
+    await respirar(ctx);
   }
 
   const blob = await salvarPdf(out, source.senha);
@@ -482,7 +483,7 @@ export async function nUp(ctx: RunContext): Promise<RunResult> {
     inputBytes: source.size,
     outputBytes: blob.size,
     notes: [
-      `${embedded.length} páginas em ${out.getPageCount()} folhas, ${colunas} x ${linhas} por folha` +
+      `${paginas.length} páginas em ${out.getPageCount()} folhas, ${colunas} x ${linhas} por folha` +
         (deitada ? ', com a folha deitada.' : '.'),
     ],
   };

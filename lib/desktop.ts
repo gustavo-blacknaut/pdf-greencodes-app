@@ -87,7 +87,7 @@ export type OpcoesImpressao = {
   paisagem?: boolean;
   duplex?: 'simplex' | 'shortEdge' | 'longEdge';
   papel?: 'A3' | 'A4' | 'A5' | 'Legal' | 'Letter' | 'Tabloid';
-  /** Ignorado: a folha sai sempre na melhor resolução. Fica por causa das opções guardadas. */
+  /** Resolução desejada, limitada pela capacidade de montagem da folha. Padrão: 600. */
   dpi?: number;
   /**
    * A beirada da impressora escolhida. Vem do driver na hora de imprimir, e
@@ -386,11 +386,6 @@ export async function abrirNoSistema(caminho: string): Promise<ResultadoSalvar> 
   return (await pedir<ResultadoSalvar>('abrir', { caminho })) ?? FORA;
 }
 
-/** Abre numa janela do próprio programa. */
-export async function abrirNoAplicativo(caminho: string): Promise<ResultadoSalvar> {
-  return (await pedir<ResultadoSalvar>('abrir_aqui', { caminho })) ?? FORA;
-}
-
 /** Abre no navegador padrão do sistema. */
 export async function abrirNoNavegador(caminho: string): Promise<ResultadoSalvar> {
   return (await pedir<ResultadoSalvar>('abrir_no_navegador', { caminho })) ?? FORA;
@@ -524,7 +519,7 @@ export function montagemDe(opcoes: OpcoesImpressao = {}): Montagem {
     ajustes: opcoes.ajustes,
     // Sempre a melhor: quem imprime não deveria ter de escolher entre nítido
     // e borrado. Papel grande desce sozinho até caber na memória.
-    dpi: DPI_MAXIMO,
+    dpi: opcoes.dpi ?? DPI_MAXIMO,
     escala: opcoes.escala ?? opcoes.ajuste ?? 'pagina',
     porcento: opcoes.escalaPorcento,
     deslocaX: opcoes.deslocaXmm,

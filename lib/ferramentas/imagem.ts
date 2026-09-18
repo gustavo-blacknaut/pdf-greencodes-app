@@ -95,6 +95,7 @@ export const IMAGEM: Tool[] = [
     accept: ENTRADA,
     acceptLabel: 'imagens',
     multiple: true,
+    recorte: 'imagem',
     cta: 'Redimensionar',
     fields: [
       {
@@ -161,7 +162,7 @@ export const IMAGEM: Tool[] = [
         default: 'cabe',
         options: [
           { value: 'cabe', label: 'Cabe inteira', hint: 'pode sobrar borda' },
-          { value: 'preenche', label: 'Preenche', hint: 'passa da medida e é aparada depois' },
+          { value: 'preenche', label: 'Preenche', hint: 'usa o recorte visual e ocupa a medida inteira' },
           { value: 'esticar', label: 'Estica', hint: 'medida exata, mas deforma' },
         ],
         showIf: { key: 'modo', equals: 'impressao' },

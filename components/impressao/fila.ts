@@ -6,10 +6,11 @@
  * pessoa imprimiu da última vez?".
  */
 
-import type { OpcoesImpressao } from '@/lib/desktop';
-import { IMAGE_ACCEPT } from '@/lib/ferramentas/tipos';
-import type { OperationId } from '@/lib/pdf/engine';
-import { pareceSerImagem } from '@/lib/pdf/guards';
+import type { OpcoesImpressao } from '../../lib/desktop';
+import { IMAGE_ACCEPT } from '../../lib/ferramentas/tipos';
+import type { OperationId } from '../../lib/pdf/engine';
+import { pareceSerImagem } from '../../lib/pdf/guards';
+import { PAPEIS } from '../../lib/impressao/layout';
 
 /** Onde as opções da última impressão ficam guardadas. */
 export const CHAVE_DAS_OPCOES = 'greencodes:impressao';
@@ -21,7 +22,19 @@ export const OPCOES_PADRAO: OpcoesImpressao = {
   paisagem: false,
   duplex: 'simplex',
   papel: 'A4',
+  dpi: 600,
 };
+
+/** Uma grade picotada não pode herdar a escala ou o deslocamento da última foto. */
+export function opcoesParaFolhaMontada(atuais: OpcoesImpressao, papel: string | null): OpcoesImpressao {
+  if (!papel || !Object.hasOwn(PAPEIS, papel)) return atuais;
+  return {
+    ...atuais, papel: papel as OpcoesImpressao['papel'], escala: 'original', ajuste: 'original',
+    escalaPorcento: 100, orientacao: 'auto', paisagem: false, deslocaXmm: 0, deslocaYmm: 0,
+    margemLadosMm: 0, margemCimaMm: 0, espelho: 'nao', negativo: false,
+    marcasCorte: false, marcasRegistro: false,
+  };
+}
 
 export const ACEITA = [
   'application/pdf',
@@ -51,7 +64,10 @@ export function conversaoPara(nome: string): OperationId | null {
 export function lerOpcoesSalvas(): OpcoesImpressao {
   try {
     const bruto = localStorage.getItem(CHAVE_DAS_OPCOES);
-    return bruto ? { ...OPCOES_PADRAO, ...JSON.parse(bruto) } : OPCOES_PADRAO;
+    const salvas = bruto ? JSON.parse(bruto) : null;
+    return salvas && typeof salvas === 'object' && !Array.isArray(salvas)
+      ? { ...OPCOES_PADRAO, ...salvas, dpi: 600 }
+      : { ...OPCOES_PADRAO };
   } catch {
     return OPCOES_PADRAO;
   }

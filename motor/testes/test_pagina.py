@@ -9,6 +9,37 @@ from motor.protocolo import ErroDoUsuario
 
 
 class TestVariasPorFolha:
+    @pytest.mark.parametrize("giro", [0, 90, 180, 270])
+    def test_duas_a5_ocupam_a4_sem_rasterizar(self, rodar, tmp_path, giro):
+        origem = str(tmp_path / "origem.pdf")
+        destino = str(tmp_path / "duas-a5.pdf")
+        with pymupdf.open() as doc:
+            for i, (l, a) in enumerate([(595.28, 841.89), (841.89, 595.28)]):
+                pagina = doc.new_page(width=l, height=a)
+                pagina.draw_rect(pagina.rect, color=None, fill=(0, 0, 0))
+                pagina.insert_text((40, 80), f"Texto {i + 1}", color=(1, 1, 1))
+                pagina.set_rotation(giro)
+            doc.save(origem)
+        rodar("varias-por-folha", [origem], {"porFolha": 2}, saida=destino)
+        with pymupdf.open(destino) as doc:
+            p = doc[0]
+            assert p.rect.width * 25.4 / 72 == pytest.approx(297, abs=0.01)
+            assert p.rect.height * 25.4 / 72 == pytest.approx(210, abs=0.01)
+            assert "Texto 1" in p.get_text() and "Texto 2" in p.get_text()
+            assert p.get_images() == []
+            # Mede o desenho real das duas páginas, não a constante da grade.
+            desenhos = [d["rect"] for d in p.get_drawings() if d["fill"] == (0, 0, 0)]
+            assert len(desenhos) == 2
+            desenhos.sort(key=lambda r: r.x0)
+            for indice, caixa in enumerate(desenhos):
+                assert caixa.width * 25.4 / 72 == pytest.approx(148.5, abs=0.1)
+                assert caixa.height * 25.4 / 72 == pytest.approx(210, abs=0.1)
+                assert caixa.x0 * 25.4 / 72 == pytest.approx(indice * 148.5, abs=0.1)
+
+    def test_doze_por_folha(self, criar_pdf, rodar, tmp_path):
+        resultado = rodar("varias-por-folha", [criar_pdf(paginas=13)], {"porFolha": 12}, saida=str(tmp_path / "doze.pdf"))
+        assert resultado["paginas"] == 2
+
     def test_quatro_por_folha_junta_quatro_em_uma(self, criar_pdf, rodar, tmp_path):
         destino = str(tmp_path / "4-em-1.pdf")
         resultado = rodar("varias-por-folha", [criar_pdf(paginas=8)], {"porFolha": 4}, saida=destino)

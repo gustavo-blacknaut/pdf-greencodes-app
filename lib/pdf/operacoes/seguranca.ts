@@ -159,17 +159,22 @@ export async function unlock(ctx: RunContext): Promise<RunResult> {
   const out = await PDFDocument.create();
   const canvas = document.createElement('canvas');
 
-  for (let i = 1; i <= docJs.numPages; i += 1) {
-    ctx.onProgress((i - 1) / docJs.numPages, `Redesenhando a página ${i} de ${docJs.numPages}`);
-    const page = await docJs.getPage(i);
-    const { widthPt, heightPt } = await renderPageToCanvas(page, 150, canvas);
-    const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.9);
-    const embutida = await out.embedJpg(await jpeg.arrayBuffer());
-    out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
-    page.cleanup();
-    await respirar(ctx);
+  try {
+    for (let i = 1; i <= docJs.numPages; i += 1) {
+      ctx.onProgress((i - 1) / docJs.numPages, `Redesenhando a página ${i} de ${docJs.numPages}`);
+      const page = await docJs.getPage(i);
+      const { widthPt, heightPt } = await renderPageToCanvas(page, 150, canvas);
+      const jpeg = await canvasToBlob(canvas, 'image/jpeg', 0.9);
+      const embutida = await out.embedJpg(await jpeg.arrayBuffer());
+      out.addPage([widthPt, heightPt]).drawImage(embutida, { x: 0, y: 0, width: widthPt, height: heightPt });
+      page.cleanup();
+      await respirar(ctx);
+    }
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    await docJs.destroy();
   }
-  await docJs.destroy();
 
   const blob = toPdfBlob(await out.save({ useObjectStreams: true }));
   ctx.onProgress(1);

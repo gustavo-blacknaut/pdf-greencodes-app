@@ -12,6 +12,7 @@ import { type Ajuste, type OutputFile, type RunContext, type RunResult } from '.
 import { replaceExtension, yieldToBrowser } from '../../utils';
 import { loadPdfJs, loadPdfLib } from '../lazy';
 import { decodificarImagem } from '../../imagem/decodificar';
+import { identidadeDaImagem } from '../identidade-imagem';
 
 export async function pdfToImages(ctx: RunContext): Promise<RunResult> {
   const source = ctx.files[0];
@@ -25,18 +26,23 @@ export async function pdfToImages(ctx: RunContext): Promise<RunResult> {
   const padWidth = String(doc.numPages).length;
 
   const images: { name: string; blob: Blob }[] = [];
-  for (let i = 1; i <= doc.numPages; i += 1) {
-    ctx.onProgress((i - 1) / doc.numPages, `Renderizando página ${i}/${doc.numPages}`);
-    const page = await doc.getPage(i);
-    await renderPageToCanvas(page, dpi, canvas);
-    images.push({
-      name: `${source.name.replace(/\.[^.]+$/, '')}-${String(i).padStart(padWidth, '0')}.${ext}`,
-      blob: await canvasToBlob(canvas, mime, quality),
-    });
-    page.cleanup();
-    await yieldToBrowser();
+  try {
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      ctx.onProgress((i - 1) / doc.numPages, `Renderizando página ${i}/${doc.numPages}`);
+      const page = await doc.getPage(i);
+      await renderPageToCanvas(page, dpi, canvas);
+      images.push({
+        name: `${source.name.replace(/\.[^.]+$/, '')}-${String(i).padStart(padWidth, '0')}.${ext}`,
+        blob: await canvasToBlob(canvas, mime, quality),
+      });
+      page.cleanup();
+      await respirar(ctx);
+    }
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    await doc.destroy();
   }
-  await doc.destroy();
 
   if (images.length === 1) {
     ctx.onProgress(1);
@@ -261,65 +267,20 @@ export async function wordToPdf(ctx: RunContext): Promise<RunResult> {
  * fórmula ficam no próprio <v>, já calculados pelo Excel.
  */
 export async function lerPlanilha(bytes: ArrayBuffer): Promise<{ nome: string; linhas: string[][] }[]> {
-  const JSZip = (await import('jszip')).default;
-  const zip = await JSZip.loadAsync(bytes);
-
-  const workbook = await zip.file('xl/workbook.xml')?.async('string');
-  if (!workbook) {
-    throw new Error('Não encontramos xl/workbook.xml: o arquivo não parece ser um .xlsx válido.');
+  const cabecalho = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 8));
+  const zip = cabecalho[0] === 0x50 && cabecalho[1] === 0x4b;
+  const ole = cabecalho[0] === 0xd0 && cabecalho[1] === 0xcf;
+  if (!zip && !ole) throw new Error('O arquivo não parece ser uma planilha XLS, XLSX ou XLSM válida.');
+  const { read, utils } = await import('xlsx');
+  let livro: ReturnType<typeof read>;
+  try {
+    livro = read(bytes, { type: 'array', cellDates: false, cellFormula: false, bookVBA: false });
+  } catch {
+    throw new Error('Não foi possível ler a planilha. Confira se o arquivo é válido e não está protegido por senha (XLSX/XLSM precisam de workbook.xml).');
   }
-
-  const compartilhadas: string[] = [];
-  const sharedXml = await zip.file('xl/sharedStrings.xml')?.async('string');
-  if (sharedXml) {
-    for (const item of sharedXml.match(/<si\b[^>]*>[\s\S]*?<\/si>/g) ?? []) {
-      // Uma célula com formatação vira vários <t>; juntamos todos.
-      const pedacos = [...item.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => decodificarEntidadesXml(m[1]));
-      compartilhadas.push(pedacos.join(''));
-    }
-  }
-
-  const nomes = [...workbook.matchAll(/<sheet\b[^>]*name="([^"]*)"[^>]*\/?>/g)].map((m) =>
-    decodificarEntidadesXml(m[1]),
-  );
-
-  const planilhas: { nome: string; linhas: string[][] }[] = [];
-  for (let i = 0; i < nomes.length; i += 1) {
-    const folha = await zip.file(`xl/worksheets/sheet${i + 1}.xml`)?.async('string');
-    if (!folha) continue;
-
-    const linhas: string[][] = [];
-    for (const linhaXml of folha.match(/<row\b[^>]*>[\s\S]*?<\/row>/g) ?? []) {
-      const celulas: string[] = [];
-      for (const celula of linhaXml.match(/<c\b[^>]*(?:\/>|>[\s\S]*?<\/c>)/g) ?? []) {
-        // A referência (A1, B1...) diz a coluna: sem isso, uma célula vazia no
-        // meio da linha desloca todo o resto para a esquerda.
-        const coluna = celula.match(/r="([A-Z]+)\d+"/)?.[1];
-        const indice = coluna
-          ? [...coluna].reduce((soma, letra) => soma * 26 + (letra.charCodeAt(0) - 64), 0) - 1
-          : celulas.length;
-
-        const tipo = celula.match(/\bt="([^"]*)"/)?.[1];
-        let valor = '';
-        if (tipo === 'inlineStr') {
-          valor = [...celula.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)]
-            .map((m) => decodificarEntidadesXml(m[1]))
-            .join('');
-        } else {
-          const bruto = celula.match(/<v\b[^>]*>([\s\S]*?)<\/v>/)?.[1];
-          if (bruto !== undefined) {
-            valor = tipo === 's' ? (compartilhadas[Number(bruto)] ?? '') : decodificarEntidadesXml(bruto);
-          }
-        }
-
-        while (celulas.length < indice) celulas.push('');
-        celulas[indice] = valor;
-      }
-      linhas.push(celulas);
-    }
-    planilhas.push({ nome: nomes[i], linhas });
-  }
-  return planilhas;
+  if (!livro.SheetNames.length) throw new Error('Nenhuma aba encontrada na planilha.');
+  return livro.SheetNames.map(nome => ({ nome, linhas: utils.sheet_to_json<string[]>(livro.Sheets[nome],
+    { header: 1, raw: false, defval: '', blankrows: false }) }));
 }
 
 /**
@@ -352,10 +313,8 @@ export async function excelToPdf(ctx: RunContext): Promise<RunResult> {
       }
       for (const linha of planilha.linhas) {
         if (linha.some((celula) => celula.trim())) algumaCelula = true;
-        // Largura fixa por coluna mantém a leitura em tabela sem desenhar
-        // grade; o corte evita que uma célula longa empurre o resto da linha.
         paragrafos.push({
-          runs: [{ texto: linha.map((celula) => celula.slice(0, 28).padEnd(18)).join(' '), negrito: false }],
+          runs: [{ texto: linha.map((celula) => celula.padEnd(18)).join(' '), negrito: false }],
         });
       }
       paragrafos.push({ runs: [] });
@@ -512,64 +471,69 @@ export async function extractImages(ctx: RunContext): Promise<RunResult> {
   const images: { name: string; blob: Blob }[] = [];
   let skipped = 0;
 
-  for (let i = 1; i <= doc.numPages; i += 1) {
-    ctx.onProgress((i - 1) / doc.numPages, `Vasculhando a página ${i}/${doc.numPages}`);
-    const page = await doc.getPage(i);
-    // O pdf.js só materializa os XObjects de imagem quando a página é
-    // rasterizada. Sem esta renderização descartável em miniatura, o
-    // objs.get() abaixo espera por um objeto que nunca chega.
-    await renderPageToCanvas(page, 12, scratch);
-    const ops = await page.getOperatorList();
+  try {
+    for (let i = 1; i <= doc.numPages; i += 1) {
+      ctx.onProgress((i - 1) / doc.numPages, `Vasculhando a página ${i}/${doc.numPages}`);
+      const page = await doc.getPage(i);
+      // O pdf.js só materializa os XObjects de imagem quando a página é
+      // rasterizada. Sem esta renderização descartável em miniatura, o
+      // objs.get() abaixo espera por um objeto que nunca chega.
+      await renderPageToCanvas(page, 12, scratch);
+      const ops = await page.getOperatorList();
 
-    for (let op = 0; op < ops.fnArray.length; op += 1) {
-      const isXObject = ops.fnArray[op] === pdfjs.OPS.paintImageXObject;
-      const isInline = ops.fnArray[op] === pdfjs.OPS.paintInlineImageXObject;
-      if (!isXObject && !isInline) continue;
+      for (let op = 0; op < ops.fnArray.length; op += 1) {
+        const isXObject = ops.fnArray[op] === pdfjs.OPS.paintImageXObject;
+        const isInline = ops.fnArray[op] === pdfjs.OPS.paintInlineImageXObject;
+        if (!isXObject && !isInline) continue;
 
-      try {
-        const arg = ops.argsArray[op][0];
-        let image;
-        if (isInline) {
-          image = arg;
-        } else {
-          // Imagens repetidas em várias páginas vivem em commonObjs; as
-          // exclusivas da página, em objs. Pedir na loja errada trava.
-          const id = String(arg);
-          const store = page.commonObjs.has(id) ? page.commonObjs : page.objs;
-          // Rede de segurança: um objeto que nunca resolve não pode travar a ferramenta.
-          image = await Promise.race([
-            new Promise((resolve) => store.get(id, resolve)),
-            new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
-          ]);
-        }
-        if (!image || image.width < minSize || image.height < minSize) {
+        try {
+          const arg = ops.argsArray[op][0];
+          let image;
+          if (isInline) {
+            image = arg;
+          } else {
+            // Imagens repetidas em várias páginas vivem em commonObjs; as
+            // exclusivas da página, em objs. Pedir na loja errada trava.
+            const id = String(arg);
+            const store = page.commonObjs.has(id) ? page.commonObjs : page.objs;
+            // Rede de segurança: um objeto que nunca resolve não pode travar a ferramenta.
+            image = await Promise.race([
+              new Promise((resolve) => store.get(id, resolve)),
+              new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+            ]);
+          }
+          if (!image || image.width < minSize || image.height < minSize) {
+            skipped += 1;
+            continue;
+          }
+          if (!drawPdfImage(image, canvas)) {
+            skipped += 1;
+            continue;
+          }
+
+          const blob = await canvasToBlob(canvas, mime, format === 'jpeg' ? 0.9 : undefined);
+          const fingerprint = await identidadeDaImagem(blob);
+          if (seen.has(fingerprint)) continue;
+          seen.add(fingerprint);
+
+          images.push({
+            name: `${source.name.replace(/\.[^.]+$/, '')}-img-${String(images.length + 1).padStart(3, '0')}.${ext}`,
+            blob,
+          });
+        } catch {
           skipped += 1;
-          continue;
         }
-        if (!drawPdfImage(image, canvas)) {
-          skipped += 1;
-          continue;
-        }
-
-        const blob = await canvasToBlob(canvas, mime, format === 'jpeg' ? 0.9 : undefined);
-        // A mesma imagem costuma ser referenciada por várias páginas com ids
-        // diferentes; dimensões + tamanho do arquivo separam as repetições.
-        const fingerprint = `${image.width}x${image.height}:${blob.size}`;
-        if (seen.has(fingerprint)) continue;
-        seen.add(fingerprint);
-
-        images.push({
-          name: `${source.name.replace(/\.[^.]+$/, '')}-img-${String(images.length + 1).padStart(3, '0')}.${ext}`,
-          blob,
-        });
-      } catch {
-        skipped += 1;
+        await respirar(ctx);
       }
-      await respirar(ctx);
+      page.cleanup();
     }
-    page.cleanup();
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    scratch.width = 0;
+    scratch.height = 0;
+    await doc.destroy();
   }
-  await doc.destroy();
 
   if (!images.length) {
     throw new Error(
