@@ -221,7 +221,7 @@ export const ETIQUETAS: Tool[] = [
         min: -10,
         max: 10,
         step: 0.1,
-        help: 'Acerto fino quando a impressora puxa o papel um fio torto. Negativo empurra para a esquerda.',
+        help: 'Acerto fino quando a impressora puxa o papel um fio torto. Negativo empurra para a esquerda. A 6093 já vem calibrada por coluna.',
       },
       {
         key: 'deslocaYmm',
@@ -231,6 +231,7 @@ export const ETIQUETAS: Tool[] = [
         min: -10,
         max: 10,
         step: 0.1,
+        help: 'A 6093 já sobe 1 mm por padrão. Use este campo somente para acrescentar outro ajuste; negativo sobe mais.',
       },
       {
         key: 'bordaEsquerdaMm', type: 'number', label: 'Borda interna à esquerda (mm)',
@@ -246,9 +247,9 @@ export const ETIQUETAS: Tool[] = [
       },
       ...[2, 3, 4].map((coluna): Field => ({
         key: `coluna${coluna}Mm`, type: 'number', label: `Ajuste da coluna ${coluna} (mm)`,
-        default: 0, min: -5, max: 5, step: 0.1,
+        default: [0, -0.7, -1.3, -2][coluna - 1], min: -5, max: 5, step: 0.1,
         showIf: { key: 'modelo', equals: '6093' },
-        help: 'Positivo move só esta coluna para a direita; negativo, para a esquerda. A primeira coluna fica no lugar.',
+        help: 'Correção progressiva já aplicada à impressora testada. Positivo move só esta coluna para a direita; negativo, para a esquerda. A primeira coluna fica no lugar.',
       })),
       {
         key: 'conferir',

@@ -112,6 +112,11 @@ export const MODELOS_DE_ETIQUETA = {
 export type ModeloDeEtiqueta = (typeof MODELOS_DE_ETIQUETA)[keyof typeof MODELOS_DE_ETIQUETA];
 
 const FOLHA_CARTA = { largura: 215.9, altura: 279.4 };
+export const CALIBRACAO_6093 = {
+  subirMm: 1,
+  colunasMm: [0, -0.7, -1.3, -2],
+  margemSeguraMm: 5,
+} as const;
 
 /**
  * A arte do item, quando o que entrou foi uma imagem.
@@ -382,10 +387,16 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
       const coluna = i % modelo.colunas;
       const linha = Math.floor(i / modelo.colunas);
       const correcaoColuna = e6093 && coluna > 0
-        ? mmParaPt(limitar(ctx.options[`coluna${coluna + 1}Mm`], -5, 5, 0)) : 0;
+        ? mmParaPt(limitar(
+            ctx.options[`coluna${coluna + 1}Mm`],
+            -5,
+            5,
+            CALIBRACAO_6093.colunasMm[coluna],
+          )) : 0;
       const x = mmParaPt(modelo.esquerda) + coluna * mmParaPt(modelo.passoX) + desloca.x + correcaoColuna;
       // O PDF conta de baixo para cima; a folha de etiqueta, de cima para baixo.
-      const y = folha.altura - mmParaPt(modelo.topo) - linha * mmParaPt(modelo.passoY) - itemA - desloca.y;
+      const subir = e6093 ? mmParaPt(CALIBRACAO_6093.subirMm) : 0;
+      const y = folha.altura - mmParaPt(modelo.topo) - linha * mmParaPt(modelo.passoY) - itemA - desloca.y + subir;
 
       // Redonda: o desenho é cortado no círculo da etiqueta, senão o canto da
       // arte cai no picote e imprime no papel de trás.
@@ -460,6 +471,9 @@ async function imporModelo(ctx: RunContext, modelo: ModeloDeEtiqueta): Promise<R
     notes: [
       `${modelo.nome}: ${modelo.colunas} x ${modelo.linhas} = ${porFolha} por folha, etiqueta de ${modelo.etiqueta}, folha Carta.`,
       'Imprima em tamanho real, sem "ajustar à página": o ajuste encolhe tudo e a arte sai fora do picote.',
+      ...(e6093 ? [
+        `Calibração da 6093: grade 1 mm para cima e colunas corrigidas progressivamente; toda a arte fica além da borda segura de ${CALIBRACAO_6093.margemSeguraMm} mm.`,
+      ] : []),
       conferir
         ? 'A folha saiu com o contorno de cada etiqueta: imprima numa folha comum e confira contra a folha de etiqueta antes de gastar.'
         : 'Na dúvida, marque "Folha de conferência" e imprima antes num papel comum. Se sair torto, acerte com o deslocamento.',

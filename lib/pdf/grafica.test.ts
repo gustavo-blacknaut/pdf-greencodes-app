@@ -250,9 +250,17 @@ describe('etiquetas em folha Pimaco', () => {
     expect(colunas).toHaveLength(4);
     expect(linhas).toHaveLength(6);
     expect(colunas[0]).toBeCloseTo(7.976, 1);
-    expect(colunas[1] - colunas[0]).toBeCloseTo(52.541, 1);
-    expect(279.4 - (linhas[0] + 42.33)).toBeCloseTo(7.976, 1);
+    expect(colunas).toEqual([
+      7.976,
+      7.976 + 52.541 - 0.7,
+      7.976 + 52.541 * 2 - 1.3,
+      7.976 + 52.541 * 3 - 2,
+    ].map((valor) => expect.closeTo(valor, 1)));
+    expect(279.4 - (linhas[0] + 42.33)).toBeCloseTo(6.976, 1);
     expect(linhas[0] - linhas[1]).toBeCloseTo(44.311, 1);
+    expect(colunas[0]).toBeGreaterThanOrEqual(5);
+    expect(215.9 - (colunas[3] + 42.33)).toBeGreaterThanOrEqual(5);
+    expect(linhas[5]).toBeGreaterThanOrEqual(5);
   });
 
   it('o deslocamento move a folha inteira, para acertar a impressora', async () => {
@@ -268,7 +276,7 @@ describe('etiquetas em folha Pimaco', () => {
 
   it('calibra cada coluna da 6093 sem mover a primeira nem alterar as fileiras', async () => {
     const arte = await pdfDe(1, 120, 120);
-    const options = { modelo: '6093', bordaEsquerdaMm: 0 };
+    const options = { modelo: '6093', bordaEsquerdaMm: 0, coluna2Mm: 0, coluna3Mm: 0, coluna4Mm: 0 };
     const reto = await posicoes((await runOperation('labels', ctx(arte, options))).files[0].blob);
     const corrigido = await posicoes((await runOperation('labels', ctx(arte, {
       ...options, coluna2Mm: -0.4, coluna3Mm: 1, coluna4Mm: 2,

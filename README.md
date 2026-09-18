@@ -567,3 +567,7 @@ A versão mora em três lugares — `package.json`, `src-tauri/Cargo.toml` e
 - Preparação de lotes de impressão sob demanda, sem montar todos os lotes na memória.
 
 A calibração física depende da impressora: imprima a referência em tamanho real, sem ajuste automático do driver, antes de usar uma folha de etiquetas.
+
+### Ajuste da Pimaco 6093 na versão 4.9.1
+
+A primeira coluna permanece na posição medida da folha. Para compensar o desvio progressivo da impressora testada, as colunas 2, 3 e 4 recebem correções de −0,7 mm, −1,3 mm e −2 mm. A grade também sobe 1 mm. Mesmo com os ajustes, todas as extremidades ficam além da área segura de 5 mm. No Adobe, imprima em **Tamanho real**, sem qualquer ajuste de escala.
