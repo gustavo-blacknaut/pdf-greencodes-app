@@ -75,6 +75,38 @@ export function yieldToBrowser(): Promise<void> {
   });
 }
 
+/**
+ * Deixa no máximo `limite` trabalhos rodando ao mesmo tempo; os outros esperam
+ * a vez, na ordem em que chegaram.
+ *
+ * Existe porque ler cem arquivos um depois do outro esperava o disco, o motor
+ * e o leitor de PDF um de cada vez, e o tempo era a soma de tudo; e disparar
+ * os cem juntos abriria cem documentos na memória de uma vez. O meio-termo é
+ * uma vaga por trabalho, devolvida a quem espera sem passar por uma janela em
+ * que outro furaria a fila.
+ */
+export function limitarConcorrencia(limite: number) {
+  let ativos = 0;
+  const espera: (() => void)[] = [];
+
+  return async function naVez<T>(trabalho: () => Promise<T>): Promise<T> {
+    if (ativos >= Math.max(1, limite)) {
+      // A vaga passa direto de quem terminou para quem esperava: o contador
+      // não desce, então ninguém mais entra no intervalo.
+      await new Promise<void>((entrar) => espera.push(entrar));
+    } else {
+      ativos += 1;
+    }
+    try {
+      return await trabalho();
+    } finally {
+      const proximo = espera.shift();
+      if (proximo) proximo();
+      else ativos -= 1;
+    }
+  };
+}
+
 export function replaceExtension(name: string, ext: string): string {
   return `${name.replace(/\.[^.]+$/, '')}.${ext}`;
 }

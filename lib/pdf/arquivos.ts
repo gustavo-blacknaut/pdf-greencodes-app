@@ -105,7 +105,7 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
     if (!pareceMesmoImagem(bytes)) {
       return { ...base, error: 'Tem nome de imagem, mas o conteúdo não é de nenhum formato de imagem conhecido.' };
     }
-    return { ...base, pageCount: 1, thumbnail: await imageThumbnail(file) };
+    return { ...base, pageCount: 1 };
   }
 
   if (ehOfficePeloNome) {
@@ -121,16 +121,13 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
     return { ...base, error: 'Este arquivo tem extensão .pdf mas o conteúdo não é um PDF.' };
   }
 
+  // Só conta as páginas: desenhar a primeira era o que custava ~230 ms por
+  // arquivo, e a miniatura agora vem depois, sob demanda (`gerarMiniatura`).
   try {
-    const doc = await openWithPdfJs(bytes);
-    const canvas = document.createElement('canvas');
+    const doc = await openWithPdfJs(bytes, undefined, { leitorCompartilhado: true });
     try {
-      const page = await doc.getPage(1);
-      await renderPageToCanvas(page, 48, canvas);
-      return { ...base, pageCount: doc.numPages, thumbnail: canvas.toDataURL('image/jpeg', 0.7) };
+      return { ...base, pageCount: doc.numPages };
     } finally {
-      canvas.width = 0;
-      canvas.height = 0;
       await doc.destroy();
     }
   } catch (error) {
@@ -144,6 +141,44 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
     } catch {
       return { ...base, error: 'Não foi possível ler este PDF (pode estar corrompido).' };
     }
+  }
+}
+
+/**
+ * A miniatura de um arquivo que já foi aberto, feita só quando alguém precisa.
+ *
+ * Abrir cem arquivos desenhava cem primeiras páginas antes de a tela poder
+ * mostrar qualquer uma delas, e a maioria nunca aparecia: a lista rola. Agora
+ * a linha pede a sua quando entra na tela. Devolve nada — e a linha fica com o
+ * ícone — quando o arquivo não tem o que desenhar: texto, Office, PDF travado
+ * ou arquivo grande que ficou no disco.
+ */
+export async function gerarMiniatura(arquivo: LoadedFile): Promise<string | null> {
+  if (!arquivo.bytes.byteLength || arquivo.locked || arquivo.error) return null;
+
+  const nome = arquivo.name.toLowerCase();
+  if (pareceSerImagem(nome, arquivo.type)) {
+    return imageThumbnail(new File([arquivo.bytes], arquivo.name, { type: arquivo.type }));
+  }
+  if (!nome.endsWith('.pdf')) return null;
+
+  let doc;
+  try {
+    doc = await openWithPdfJs(arquivo.bytes, arquivo.senha, { leitorCompartilhado: true });
+  } catch {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  try {
+    const page = await doc.getPage(1);
+    await renderPageToCanvas(page, 48, canvas);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch {
+    return null;
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    await doc.destroy().catch(() => {});
   }
 }
 

@@ -39,6 +39,8 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
     # "imagens" e o caminho do meio, e o padrao: so as fotos encolhem, o texto
     # continua texto. E onde mora quase todo o peso de um PDF real.
     so_imagens = str(pedido.opcao("modo", "")) == "imagens"
+    # Para a nota de "nao havia o que reduzir", que cita a resolucao pedida.
+    dpi = int(pedido.opcao("dpi", 150))
 
     origem = pedido.arquivos[0]
     senha = pedido.senha(0)
@@ -111,6 +113,134 @@ def comprimir(pedido: Pedido) -> Dict[str, Any]:
     }
 
 
+# A tabela de quantizacao de luminancia do padrao JPEG (anexo K), em ordem natural.
+# Todo programa que grava JPEG "com qualidade Q" parte dela e a multiplica por um fator.
+_QUANTIZACAO_PADRAO = (
+    16, 11, 10, 16, 24, 40, 51, 61,
+    12, 12, 14, 19, 26, 58, 60, 55,
+    14, 13, 16, 24, 40, 57, 69, 56,
+    14, 17, 22, 29, 51, 87, 80, 62,
+    18, 22, 37, 56, 68, 109, 103, 77,
+    24, 35, 55, 64, 81, 104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101,
+    72, 92, 95, 98, 112, 100, 103, 99,
+)  # fmt: skip
+
+# O JPEG grava a tabela em zigue-zague: a posicao k do arquivo e esta da tabela natural.
+_ZIGZAG = (
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+)  # fmt: skip
+
+
+def _qualidade_do_jpeg(dados: bytes) -> int | None:
+    """Estima o "quality" de um JPEG pela sua tabela de quantizacao, ou nada se nao der.
+
+    So o cabecalho basta: a tabela vem antes dos pixels. A estimativa usa as
+    posicoes em que o padrao tem valor alto (>= 40), porque nas de valor baixo a
+    tabela satura em 1 quando a qualidade passa de uns 92 e o resultado
+    subestimaria — e subestimar a qualidade aqui faria pular um trabalho que
+    tinha ganho. Fica dentro de uns 3 pontos, o que basta para a decisao.
+    """
+    limite = min(len(dados), 65536)
+    i = 2
+    while i + 4 < limite:
+        if dados[i] != 0xFF:
+            i += 1
+            continue
+        marca = dados[i + 1]
+        if marca == 0xFF:
+            i += 1
+            continue
+        if marca == 0xD8 or marca == 0x01 or 0xD0 <= marca <= 0xD7:
+            i += 2  # marcas sem comprimento
+            continue
+        if marca == 0xDA:
+            return None  # comecaram os pixels e nenhuma tabela de luminancia apareceu
+        tamanho = (dados[i + 2] << 8) | dados[i + 3]
+        if marca == 0xDB:  # DQT
+            j, fim = i + 4, min(i + 2 + tamanho, len(dados))
+            while j < fim:
+                info = dados[j]
+                precisao, ident = info >> 4, info & 0x0F
+                j += 1
+                bytes_da_tabela = 128 if precisao else 64
+                if ident == 0 and not precisao and j + 64 <= len(dados):
+                    natural = [0] * 64
+                    for k in range(64):
+                        natural[_ZIGZAG[k]] = dados[j + k]
+                    razoes = [natural[n] / _QUANTIZACAO_PADRAO[n] for n in range(64) if _QUANTIZACAO_PADRAO[n] >= 40]
+                    fator = 100 * sum(razoes) / len(razoes)
+                    qualidade = (200 - fator) / 2 if fator <= 100 else 5000 / fator
+                    return max(1, min(100, round(qualidade)))
+                j += bytes_da_tabela
+        i += 2 + tamanho
+    return None
+
+
+def _recomprimir_pode_ganhar(entrada: pymupdf.Document, xref: int, filtro: str, bpc: int, qualidade: int) -> bool:
+    """Regravar esta imagem poderia dar um arquivo menor?
+
+    So o JPEG de qualidade claramente abaixo da pedida diz nao com certeza:
+    regravar um JPEG a uma qualidade maior so o engorda, e o MuPDF, em modo
+    "so se ficar menor", deixaria o original — o mesmo que nao ter tentado.
+    O resto (sem perda, preto e branco, qualidade parecida ou desconhecida)
+    pode ganhar, e segue para a regravacao de sempre.
+    """
+    if filtro != "DCTDecode" or bpc == 1:
+        return True
+    try:
+        estimada = _qualidade_do_jpeg(entrada.xref_stream_raw(xref) or b"")
+    except Exception:  # noqa: BLE001 - imagem estranha: na duvida, deixa regravar
+        return True
+    return estimada is None or estimada >= qualidade - 5
+
+
+def _pagina_passa_da_resolucao(pagina: pymupdf.Page, limiar: float) -> bool:
+    """Alguma imagem desta pagina esta impressa com mais resolucao que o limiar?
+
+    Pela lista de imagens da pagina (`get_image_info`), que so le tamanhos: nao
+    decodifica nada. O que decodifica, e caro, e `get_image_rects` — ele
+    calcula um MD5 dos pixels para achar onde a imagem foi desenhada.
+    """
+    for info in pagina.get_image_info():
+        largura_pol = pymupdf.Rect(info["bbox"]).width / 72
+        if largura_pol > 0 and info.get("width", 0) / largura_pol > limiar:
+            return True
+    return False
+
+
+def _analisar_imagens(entrada: pymupdf.Document, dpi: int, qualidade: int) -> tuple[bool, bool]:
+    """Diz se ha o que fazer com as imagens: (alguma passa da resolucao, alguma pode ganhar).
+
+    Sem nenhuma das duas, reduzir as imagens de um arquivo de mil paginas era
+    minutos gastos para devolver o arquivo do jeito que estava. Custa uma
+    olhada por pagina, sem decodificar imagem nenhuma.
+    """
+    limiar = dpi * 1.2
+    passa = False
+    pode_ganhar = False
+    decididas: dict[int, bool] = {}
+
+    for pagina in entrada:
+        for imagem in pagina.get_images(full=True):
+            xref = imagem[0]
+            if xref not in decididas:
+                filtro = imagem[8] if len(imagem) > 8 else ""
+                decididas[xref] = _recomprimir_pode_ganhar(entrada, xref, filtro, imagem[4], qualidade)
+            pode_ganhar = pode_ganhar or decididas[xref]
+
+        if not passa:
+            passa = _pagina_passa_da_resolucao(pagina, limiar)
+
+        if passa and pode_ganhar:
+            break
+
+    return passa, pode_ganhar
+
+
 def _encolher_fotos_grandes(entrada: pymupdf.Document, dpi: int, qualidade: int) -> int:
     """Redesenha à mão a foto que o MuPDF nao encolheu, e devolve quantas trocou.
 
@@ -128,6 +258,11 @@ def _encolher_fotos_grandes(entrada: pymupdf.Document, dpi: int, qualidade: int)
     limiar = dpi * 1.2
 
     for pagina in entrada:
+        # Pagina sem imagem acima do limiar nao tem o que trocar, e olhar por
+        # imagem custa decodifica-la: `get_image_rects` calcula um MD5 dos
+        # pixels. Eram 51 s em 700 paginas de digitalizacao para nao trocar nada.
+        if not _pagina_passa_da_resolucao(pagina, limiar):
+            continue
         for imagem in pagina.get_images(full=True):
             xref = imagem[0]
             # Imagem com mascara de transparencia fica quieta: o JPEG nao
@@ -141,7 +276,6 @@ def _encolher_fotos_grandes(entrada: pymupdf.Document, dpi: int, qualidade: int)
             largura_pol = max(caixa.width for caixa in caixas) / 72
             if largura_pol <= 0:
                 continue
-
             try:
                 pix = pymupdf.Pixmap(entrada, xref)
             except Exception:  # noqa: BLE001
@@ -178,7 +312,15 @@ def _recomprimindo_imagens(pedido: Pedido, entrada: pymupdf.Document) -> None:
     dpi = int(pedido.opcao("dpi", 150))
     qualidade = int(pedido.opcao("qualidade", 75))
     limiar = int(dpi * 1.2)
-    pedido.andamento(0.2, "Reduzindo as imagens")
+    passa, pode_ganhar = _analisar_imagens(entrada, dpi, qualidade)
+    if not passa and not pode_ganhar:
+        # Nada acima da resolucao pedida e nenhuma imagem que regravar deixasse
+        # menor: o resultado da regravacao seria o proprio arquivo, depois de
+        # minutos. Segue direto para as fontes e a gravacao.
+        pedido.andamento(0.7, "As imagens ja estao na resolucao pedida")
+        _enxugar_fontes(pedido, entrada)
+        return
+    pedido.andamento(0.2, f"Reduzindo as imagens de {entrada.page_count} paginas")
 
     # As opcoes a mao, e nao os parametros simples do `rewrite_images`: eles
     # reduzem pela media, que so divide por numero inteiro - uma foto a
@@ -212,13 +354,20 @@ def _recomprimindo_imagens(pedido: Pedido, entrada: pymupdf.Document) -> None:
     opcoes.bitonal_image_subsample_to = max(dpi, 300)
     entrada.rewrite_images(options=opcoes)
     # E o que o MuPDF deixou passar: imagem sem perda com perfil ICC, que e o
-    # caso da folha de fotos e de meio programa de foto por ai.
-    pedido.andamento(0.5, "Reduzindo as fotos grandes")
-    _encolher_fotos_grandes(entrada, dpi, qualidade)
+    # caso da folha de fotos e de meio programa de foto por ai. So se alguma
+    # imagem passa da resolucao: e a mesma conta que a regravacao acabou de
+    # fazer, e sem nada acima dela esta etapa nao tem o que trocar.
+    if passa:
+        pedido.andamento(0.5, "Reduzindo as fotos grandes")
+        _encolher_fotos_grandes(entrada, dpi, qualidade)
+    _enxugar_fontes(pedido, entrada)
+
+
+def _enxugar_fontes(pedido: Pedido, entrada: pymupdf.Document) -> None:
+    """Fonte embutida inteira pesa centenas de KB; subconjunto so leva os caracteres usados."""
     pedido.andamento(0.7, "Enxugando as fontes")
     try:
-        # Fonte embutida inteira pesa centenas de KB; subconjunto so leva os
-        # caracteres usados. Fonte que nao se deixa recortar fica como estava.
+        # Fonte que nao se deixa recortar fica como estava.
         entrada.subset_fonts()
     except Exception:  # noqa: BLE001
         pass

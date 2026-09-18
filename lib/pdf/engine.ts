@@ -71,7 +71,7 @@ export type {
   RunContext,
   RunResult,
 } from './tipos';
-export { desbloquearArquivo, inspectFile, renderPageThumbnails, renderPaginaParaEditor } from './arquivos';
+export { desbloquearArquivo, gerarMiniatura, inspectFile, renderPageThumbnails, renderPaginaParaEditor } from './arquivos';
 export { FORMATOS_MM, mmParaPt, zipFiles } from './nucleo';
 export { POR_FOLHA } from './operacoes/organizar';
 
@@ -212,7 +212,7 @@ export async function runOperation(id: OperationId, ctx: RunContext): Promise<Ru
     ? await rodarNoPython(id, ctx)
     : await operation(await trazerParaAMemoria(ctx));
   abortarSePreciso(ctx.signal);
-  if (id === 'merge' && ['sem-perda', 'alta'].includes(String(ctx.options.compressaoApos))) {
+  if (id === 'merge' && !resultado.jaComprimido && ['sem-perda', 'alta'].includes(String(ctx.options.compressaoApos))) {
     const files: LoadedFile[] = [];
     for (const [indice, arquivo] of resultado.files.entries()) {
       files.push({ id: `unido-${indice}`, name: arquivo.name, type: 'application/pdf',

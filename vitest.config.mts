@@ -1,6 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // O mesmo `@/` do tsconfig: os componentes importam por ele, e sem isto o
+  // vitest não acha os módulos que eles usam.
+  resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
   test: {
     /*
      * O padrão de 5s era apertado desde sempre, e ficou curto depois que o

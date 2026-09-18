@@ -94,13 +94,35 @@ export async function openWithPdfLib(bytes: ArrayBuffer, password = '') {
   throw ultimoErro;
 }
 
-export async function openWithPdfJs(bytes: ArrayBuffer, password?: string) {
+/**
+ * O leitor de PDF que a fila de arquivos divide entre todos os arquivos.
+ *
+ * Sem `worker`, cada `getDocument` cria um Worker só para ele — e carrega de
+ * novo o script do pdf.js, mais de 1 MB — e o destrói ao fechar o documento.
+ * Para contar as páginas de cem arquivos, eram cem Workers criados e jogados
+ * fora: era esse o custo fixo de cada arquivo, e por isso subir o número de
+ * arquivos abertos ao mesmo tempo não adiantava. Aqui é um só, vivo enquanto
+ * a aba viver; recriado se alguém o destruir.
+ */
+let leitorDaFila: InstanceType<Awaited<ReturnType<typeof loadPdfJs>>['PDFWorker']> | null = null;
+
+export async function openWithPdfJs(
+  bytes: ArrayBuffer,
+  password?: string,
+  opcoes: { leitorCompartilhado?: boolean } = {},
+) {
   const pdfjs = await loadPdfJs();
+  let worker: NonNullable<typeof leitorDaFila> | undefined;
+  if (opcoes.leitorCompartilhado) {
+    if (!leitorDaFila || leitorDaFila.destroyed) leitorDaFila = new pdfjs.PDFWorker();
+    worker = leitorDaFila;
+  }
   const abrir = async (senha: string) => {
     const tarefa = pdfjs.getDocument({
       data: copy(bytes),
       useSystemFonts: true,
       isEvalSupported: false,
+      ...(worker ? { worker } : {}),
       ...(senha ? { password: senha } : {}),
     });
     try {

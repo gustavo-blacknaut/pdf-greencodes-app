@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { Dropzone } from './Dropzone';
 import { useColarArquivos } from './useColarArquivos';
-import { filtrarAceitos, lerNaFila } from './entradaDeArquivos';
+import { aplicarMudancas, filtrarAceitos, lerNaFila } from './entradaDeArquivos';
+import { useMiniaturas } from './useMiniaturas';
 import { ErroDaFerramenta } from './ErroDaFerramenta';
 import { FilaDeArquivos, type ArquivoNaFila } from './FilaDeArquivos';
 import { OptionField } from './OptionField';
@@ -231,9 +232,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
         return [...current.filter((i) => !substituidos.has(i.id)), ...novos];
       });
 
-      void lerNaFila(batch, tool, (id, mudanca) =>
-        setItems((current) => current.map((existing) => (existing.id === id ? { ...existing, ...mudanca } : existing))),
-      );
+      void lerNaFila(batch, tool, (mudancas) => setItems((current) => aplicarMudancas(current, mudancas)));
     },
     [tool, items],
   );
@@ -366,6 +365,8 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
   const handleElementosChange = useCallback((elementos: ElementoEditor[]) => {
     setOptions((current) => ({ ...current, elementos: JSON.stringify(elementos) }));
   }, []);
+
+  const pedirMiniatura = useMiniaturas(items, setItems);
 
   const handleRecortesChange = useCallback((recortes: RecorteDeArquivo[]) => {
     setOptions((current) => ({ ...current, recorte: JSON.stringify(recortes) }));
@@ -741,6 +742,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
             onEscolhidos={mostrarEscolhidos}
             onLendo={marcarLeitura}
             onFalha={descartarMarcadores}
+            onMiniatura={pedirMiniatura}
           />
           ) : null}
 

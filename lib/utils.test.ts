@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatDuration, parsePageRange, replaceExtension, suffixName } from './utils';
+import { formatBytes, formatDuration, limitarConcorrencia, parsePageRange, replaceExtension, suffixName } from './utils';
 
 describe('parsePageRange', () => {
   it('devolve todas as páginas quando a entrada é vazia', () => {
@@ -76,5 +76,59 @@ describe('nomes de arquivo', () => {
   it('acrescenta o sufixo antes da extensão', () => {
     expect(suffixName('contrato.pdf', 'comprimido')).toBe('contrato-comprimido.pdf');
     expect(suffixName('foto.PNG', 'girado')).toBe('foto-girado.PNG');
+  });
+});
+
+describe('limitarConcorrencia', () => {
+  const esperar = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
+
+  it('nunca passa do limite de trabalhos ao mesmo tempo', async () => {
+    const naVez = limitarConcorrencia(3);
+    let agora = 0;
+    let maior = 0;
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        naVez(async () => {
+          agora += 1;
+          maior = Math.max(maior, agora);
+          await esperar(3);
+          agora -= 1;
+        }),
+      ),
+    );
+    expect(maior).toBe(3);
+    expect(agora).toBe(0);
+  });
+
+  it('atende na ordem em que os trabalhos chegaram', async () => {
+    const naVez = limitarConcorrencia(1);
+    const ordem: number[] = [];
+    await Promise.all(
+      [0, 1, 2, 3, 4].map((n) =>
+        naVez(async () => {
+          await esperar(2);
+          ordem.push(n);
+        }),
+      ),
+    );
+    expect(ordem).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('devolve o resultado de cada trabalho', async () => {
+    const naVez = limitarConcorrencia(2);
+    const dobros = await Promise.all([1, 2, 3, 4].map((n) => naVez(async () => n * 2)));
+    expect(dobros).toEqual([2, 4, 6, 8]);
+  });
+
+  it('um trabalho que falha devolve a vaga e não trava a fila', async () => {
+    const naVez = limitarConcorrencia(1);
+    const falha = naVez(async () => {
+      throw new Error('quebrou');
+    });
+    const seguinte = naVez(async () => 'ok');
+    await expect(falha).rejects.toThrow('quebrou');
+    await expect(seguinte).resolves.toBe('ok');
+    // E a vaga voltou de verdade: um trabalho novo entra sem esperar ninguém.
+    await expect(naVez(async () => 'livre')).resolves.toBe('livre');
   });
 });

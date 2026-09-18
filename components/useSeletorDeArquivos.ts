@@ -8,6 +8,18 @@ import {
   lerArquivoEscolhido,
   type ArquivoEscolhido,
 } from '@/lib/desktop';
+import { limitarConcorrencia } from '@/lib/utils';
+
+/**
+ * Quantos arquivos pequenos são lidos do disco ao mesmo tempo.
+ *
+ * Cada leitura é uma ida e volta à janela do sistema, e uma esperava a outra:
+ * cem PDFs de 200 KB gastavam quase 3 s só nisso, com o disco parado no meio.
+ */
+const LEITURAS_AO_MESMO_TEMPO = 4;
+
+/** A partir daqui o arquivo é lido sozinho. */
+const ARQUIVO_GRANDE = 32 * 1024 * 1024;
 
 /**
  * Escolher arquivos, do mesmo jeito em qualquer lugar da tela.
@@ -89,13 +101,23 @@ export function useSeletorDeArquivos({
       : () => {};
 
     try {
-      const arquivos: File[] = [];
-      // Um de cada vez: dois arquivos de 400 MB lidos juntos dobram a memória
-      // sem adiantar nada, porque o disco é o mesmo.
+      const vez = limitarConcorrencia(LEITURAS_AO_MESMO_TEMPO);
+      const lidos: Promise<File>[] = [];
       for (const escolhido of lista) {
-        arquivos.push(await lerArquivoEscolhido(escolhido));
+        if (escolhido.tamanho > ARQUIVO_GRANDE) {
+          // Um arquivo grande lê sozinho: dois de 400 MB juntos dobram a
+          // memória sem adiantar nada, porque o disco é o mesmo. Espera os
+          // pequenos que já saíram e só depois começa.
+          await Promise.all(lidos);
+          lidos.push(lerArquivoEscolhido(escolhido));
+          await lidos[lidos.length - 1];
+        } else {
+          lidos.push(vez(() => lerArquivoEscolhido(escolhido)));
+        }
       }
-      onFiles(arquivos);
+      // Na ordem em que foram escolhidos, e não na em que terminaram: é a
+      // ordem que a pessoa vê na fila e a que vale para juntar.
+      onFiles(await Promise.all(lidos));
     } catch (erro) {
       // Sem isto o marcador na tela ficaria em "carregando" para sempre.
       onFalha?.(

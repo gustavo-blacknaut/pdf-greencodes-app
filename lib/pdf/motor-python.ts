@@ -43,6 +43,14 @@ type Traducao = {
   aceita?: (ctx: RunContext) => boolean;
   /** O que a ferramenta faz, para a barra de andamento ter texto. */
   rotulo: string;
+  /**
+   * Uma segunda ação do motor, sobre o arquivo que a primeira acabou de gravar.
+   *
+   * Sem isto, "juntar e comprimir" trazia o resultado do motor para a tela e o
+   * mandava de volta para o motor — 170 MB atravessando duas vezes, 7,7 s e o
+   * dobro de memória, só para o arquivo mudar de mãos entre duas etapas.
+   */
+  depois?: (opcoes: Opcoes) => { acao: string; rotulo: string; opcoes: Record<string, unknown> } | null;
 };
 
 /** Os nomes de papel como o motor os conhece. */
@@ -142,6 +150,11 @@ const NO_PYTHON: Record<string, Traducao> = {
     // Juntar aceita imagem misturada com PDF, e desenhar a imagem numa página
     // é serviço do lado de cá. Só a fila 100% PDF desce para o Python.
     aceita: (ctx) => ctx.files.every((f) => f.name.toLowerCase().endsWith('.pdf')),
+    depois: (o) => {
+      const nivel = String(o.compressaoApos ?? '');
+      if (nivel !== 'sem-perda' && nivel !== 'alta') return null;
+      return { acao: 'comprimir', rotulo: 'Comprimindo', opcoes: NO_PYTHON.compress.opcoes?.({ level: nivel }) ?? {} };
+    },
   },
   reverse: { acao: 'inverter-paginas', rotulo: 'Invertendo a ordem' },
   booklet: { acao: 'livreto', rotulo: 'Montando o livreto' },
@@ -388,8 +401,13 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
   if (!motor || !traducao) throw new Error(`Ferramenta sem motor Python: ${id}`);
 
   const pasta = await motor.pastaTemporaria();
+  // Com uma segunda etapa, cada uma ocupa a sua parte da barra: sem isto a
+  // barra ia a 92% no fim do juntar e voltava a 2% para comprimir.
+  const encadeada = traducao.depois?.(ctx.options) ?? null;
+  let faixa = encadeada ? { de: 0.05, ate: 0.3 } : { de: 0.1, ate: 0.9 };
+  let rotuloAtual = traducao.rotulo;
   const desligarAndamento = motor.aoAndar((passo) => {
-    ctx.onProgress(0.1 + passo.fracao * 0.8, passo.mensagem || traducao.rotulo);
+    ctx.onProgress(Math.min(faixa.ate, faixa.de + passo.fracao * (faixa.ate - faixa.de)), passo.mensagem || rotuloAtual);
   });
 
   // Cancelar mata o processo do motor: ele atende um trabalho de cada vez, e
@@ -418,11 +436,35 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
     // sem extensão, e vale tanto para quem gera um arquivo quanto para quem
     // gera uma pasta com vários.
     abortarSePreciso(ctx.signal);
-    const dados = (await motor.executar(traducao.acao, {
+    let dados = (await motor.executar(traducao.acao, {
       arquivos: caminhos,
       opcoes: traducao.opcoes ? traducao.opcoes(ctx.options) : {},
       senhas: ctx.files.map((arquivo) => arquivo.senha ?? ''),
     })) as Record<string, unknown>;
+
+    if (encadeada) {
+      // O arquivo que o motor acabou de gravar já está na pasta dele: a segunda
+      // etapa o abre de lá, sem que ele passe pela tela. A senha é a do
+      // primeiro arquivo — é a que o `juntar` põe no resultado.
+      abortarSePreciso(ctx.signal);
+      faixa = { de: 0.3, ate: 0.92 };
+      rotuloAtual = encadeada.rotulo;
+      ctx.onProgress(0.3, encadeada.rotulo);
+      const primeira = dados;
+      dados = (await motor.executar(encadeada.acao, {
+        arquivos: [saidasDoMotor(primeira)[0].arquivo],
+        opcoes: encadeada.opcoes,
+        senhas: [ctx.files[0]?.senha ?? ''],
+      })) as Record<string, unknown>;
+      dados = {
+        ...dados,
+        notas: [
+          ...notasDoMotor(primeira.notas),
+          ...notasDoMotor(dados.notas),
+          'Compressão após a junção aplicada conforme sua escolha.',
+        ],
+      };
+    }
 
     ctx.onProgress(0.92, noDisco ? 'Levando o resultado para Downloads' : 'Lendo o resultado');
 
@@ -435,7 +477,8 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
       inputBytes: ctx.files.reduce((total, arquivo) => total + arquivo.size, 0),
       outputBytes,
       notes: notasDoMotor(dados.notas),
-      highlightSavings: id === 'compress',
+      highlightSavings: id === 'compress' || Boolean(encadeada),
+      jaComprimido: Boolean(encadeada),
     };
   } finally {
     ctx.signal?.removeEventListener('abort', aoCancelar);

@@ -56,6 +56,8 @@ export type RunResult = {
   papelImpressao?: 'A3' | 'A4' | 'A5' | 'Legal' | 'Letter' | 'Tabloid';
   /** Comparativo de tamanho: só faz sentido onde encolher é o objetivo. */
   highlightSavings?: boolean;
+  /** O motor já comprimiu depois de juntar: quem chama não comprime de novo. */
+  jaComprimido?: boolean;
 };
 
 export type ProgressFn = (fraction: number, label?: string) => void;

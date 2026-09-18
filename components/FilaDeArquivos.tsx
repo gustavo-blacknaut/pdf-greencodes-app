@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowDownAZ, ArrowUpZA, Copy, FileText, GripVertical, Loader2, Plus, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DesbloquearArquivo } from './DesbloquearArquivo';
 import { Dropzone } from './Dropzone';
 import type { LoadedFile } from '@/lib/pdf/engine';
@@ -49,6 +49,7 @@ export function FilaDeArquivos({
   onEscolhidos,
   onLendo,
   onFalha,
+  onMiniatura,
 }: {
   tool: Tool;
   items: ArquivoNaFila[];
@@ -64,6 +65,8 @@ export function FilaDeArquivos({
   onEscolhidos: (escolhidos: ArquivoEscolhido[]) => void;
   onLendo: (nome: string, lidos: number, total: number) => void;
   onFalha: (nomes: string[], erro: string) => void;
+  /** A linha entrou na tela e ainda não tem miniatura. */
+  onMiniatura?: (id: string) => void;
 }) {
   // Só a linha que está sendo arrastada precisa saber disso, então o estado
   // mora aqui e não sobe para a área de trabalho inteira.
@@ -124,16 +127,7 @@ export function FilaDeArquivos({
                 </span>
               )}
 
-              <span className="grid h-14 w-11 shrink-0 place-items-center overflow-hidden rounded-lg border bg-elevated">
-                {item.loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted" />
-                ) : item.data?.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.data.thumbnail} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <FileText className="h-4 w-4 text-muted" />
-                )}
-              </span>
+              <Miniatura item={item} onMiniatura={onMiniatura} />
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{item.name}</p>
@@ -216,5 +210,54 @@ export function FilaDeArquivos({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * A miniatura da linha, pedida só quando a linha aparece na tela.
+ *
+ * Desenhar a primeira página de cada arquivo na hora de abrir era o que fazia
+ * cem PDFs levarem meio minuto, e a lista rola: quem vê oito linhas não
+ * precisa das outras noventa e duas. O pedido sai uma vez só — o observador se
+ * desliga no primeiro aparecimento — e a margem de 200 px adianta a imagem um
+ * pouco antes de a linha chegar, para ela já estar lá quando a pessoa rolar.
+ */
+function Miniatura({ item, onMiniatura }: { item: ArquivoNaFila; onMiniatura?: (id: string) => void }) {
+  const caixa = useRef<HTMLSpanElement>(null);
+  const precisa = Boolean(onMiniatura && !item.loading && !item.error && item.data && !item.data.thumbnail);
+
+  useEffect(() => {
+    const alvo = caixa.current;
+    if (!precisa || !alvo || !onMiniatura) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      onMiniatura(item.id);
+      return;
+    }
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (!entradas.some((e) => e.isIntersecting)) return;
+        observador.disconnect();
+        onMiniatura(item.id);
+      },
+      { rootMargin: '200px' },
+    );
+    observador.observe(alvo);
+    return () => observador.disconnect();
+  }, [precisa, item.id, onMiniatura]);
+
+  return (
+    <span
+      ref={caixa}
+      className="grid h-14 w-11 shrink-0 place-items-center overflow-hidden rounded-lg border bg-elevated"
+    >
+      {item.loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted" />
+      ) : item.data?.thumbnail ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={item.data.thumbnail} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <FileText className="h-4 w-4 text-muted" />
+      )}
+    </span>
   );
 }
