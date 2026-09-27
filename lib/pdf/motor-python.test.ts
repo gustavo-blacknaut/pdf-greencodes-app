@@ -49,6 +49,16 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe('quais ferramentas atravessam', () => {
+  it('envia as informações completas ao motor com o limite escolhido', () => {
+    expect(temMotorPython('pdf-information', contexto())).toBe(true);
+    expect(opcoesDoMotor('pdf-information', { papel: 'personalizado', limite: 280 })).toEqual({
+      dpi: 150, papel: 'personalizado', limite: 280,
+    });
+    expect(opcoesDoMotor('pdf-information', {}).papel).toBe('digital');
+    expect(temMotorPython('separate-plates', contexto())).toBe(false);
+    expect(temMotorPython('odd-even', contexto())).toBe(false);
+  });
+
   it('manda as que rasterizam para o Python', () => {
     for (const id of ['grayscale', 'invert-colors', 'black-tones', 'pdf-to-images']) {
       expect(temMotorPython(id, contexto()), id).toBe(true);

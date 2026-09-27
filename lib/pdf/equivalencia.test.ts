@@ -112,7 +112,6 @@ const CASOS: Caso[] = [
   { op: 'n-up', nome: 'papel Carta escolhido na impressão', opcoes: { perSheet: 2, papel: 'Letter' }, paginas: 3 },
   { op: 'reverse', nome: 'inverter páginas', opcoes: {}, paginas: 8 },
   { op: 'booklet', nome: 'livreto', opcoes: {}, paginas: 8 },
-  { op: 'odd-even', nome: 'separar pares e ímpares', opcoes: {}, paginas: 9 },
   { op: 'crop', nome: 'cortar', opcoes: { top: 10, bottom: 10, left: 5, right: 5 }, paginas: 4 },
   { op: 'split-pages', nome: 'dividir páginas ao meio', opcoes: { mode: 'vertical' }, paginas: 4 },
   { op: 'interleave', nome: 'intercalar', opcoes: {}, entradas: 2, paginas: 4 },

@@ -385,27 +385,6 @@ export const ORGANIZAR: Tool[] = [
     fields: [],
   },
   {
-    slug: 'separar-pares-impares',
-    operation: 'odd-even',
-    name: 'Separar pares e ímpares',
-    tagline: 'Dois arquivos: ímpares e pares',
-    description:
-      'Quebra o documento em dois, um com as páginas ímpares e outro com as pares. Serve para imprimir frente e verso numa impressora sem duplex.',
-    icon: 'Columns2',
-    accent: '20 184 166',
-    category: 'Organizar',
-    busca: [
-      'par e impar',
-      'frente e verso manual',
-      'so as pares',
-    ],
-    accept: PDF_ACCEPT,
-    acceptLabel: 'PDF',
-    multiple: false,
-    cta: 'Separar',
-    fields: [],
-  },
-  {
     slug: 'paginas-em-branco',
     operation: 'blank-pages',
     name: 'Inserir páginas em branco',

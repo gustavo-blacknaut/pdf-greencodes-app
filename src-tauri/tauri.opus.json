@@ -1,0 +1,16 @@
+{
+  "productName": "OPUS",
+  "mainBinaryName": "opus",
+  "identifier": "br.com.opusgrafica.pdf",
+  "app": {
+    "windows": [{
+      "label": "principal", "title": "OPUS 5.0 · Opus Gráfica", "url": "app",
+      "width": 1180, "height": 780, "minWidth": 900, "minHeight": 600,
+      "resizable": true, "center": true, "visible": false, "backgroundColor": "#ffffff"
+    }]
+  },
+  "bundle": {
+    "fileAssociations": [{ "ext": ["pdf"], "name": "OPUS.PDF", "description": "Abrir no OPUS", "role": "Editor" }],
+    "windows": { "nsis": { "startMenuFolder": "OPUS", "installerHooks": "./windows/hooks-opus.nsh" } }
+  }
+}

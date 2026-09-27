@@ -22,6 +22,10 @@ const DPI_MINIMO = 300;
 /** Abaixo disto não é "meio ruim", é inaceitável em qualquer tamanho. */
 const DPI_CRITICO = 150;
 
+export async function informacoesPdf(): Promise<RunResult> {
+  throw new Error('As informações completas do PDF precisam do aplicativo para Windows, que mede a cobertura de tinta em CMYK.');
+}
+
 const PT_POR_MM = 72 / 25.4;
 const emMm = (pt: number) => Math.round((pt / PT_POR_MM) * 10) / 10;
 

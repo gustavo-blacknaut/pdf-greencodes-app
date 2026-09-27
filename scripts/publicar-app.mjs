@@ -41,7 +41,11 @@ const comVersao = path.join(pasta, `PDF.GreenCodes_${versao}_x64-setup.exe`);
 if (!existsSync(comVersao)) falhar(`não achei ${comVersao}. Rode antes: npm run app:build`);
 
 const fixo = path.join(pasta, NOME_FIXO);
+const opusComVersao = path.join(pasta, `OPUS_${versao}_x64-setup.exe`);
+if (!existsSync(opusComVersao)) falhar(`não achei ${opusComVersao}. Rode antes: npm run app:build:opus`);
+const opusFixo = path.join(pasta, 'OPUS-Setup.exe');
 copyFileSync(comVersao, fixo);
+copyFileSync(opusComVersao, opusFixo);
 
 const titulo = readFileSync(notas, 'utf8').match(/^#\s+(.+)$/m)?.[1] ?? `PDF.GreenCodes ${versao}`;
 console.log(`Publicando v${versao}: ${titulo}`);
@@ -49,7 +53,7 @@ console.log(`Publicando v${versao}: ${titulo}`);
 // falhou sem achar o programa, e a release não saiu.
 execFileSync(
   process.platform === 'win32' ? 'gh.exe' : 'gh',
-  ['release', 'create', `v${versao}`, comVersao, fixo, '--repo', REPOSITORIO, '--target', 'main', '--title', `v${versao} — ${titulo}`, '--notes-file', notas],
+  ['release', 'create', `v${versao}`, comVersao, fixo, opusComVersao, opusFixo, '--repo', REPOSITORIO, '--target', 'main', '--title', `v${versao} — ${titulo}`, '--notes-file', notas],
   { stdio: 'inherit' },
 );
 console.log(`\nO botão do site já baixa esta versão:\nhttps://github.com/${REPOSITORIO}/releases/latest/download/${NOME_FIXO}`);

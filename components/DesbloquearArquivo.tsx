@@ -73,7 +73,7 @@ export function DesbloquearArquivo({
         <p className="mt-1.5 text-xs text-rose-500">{erro}</p>
       ) : (
         <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-          A senha não sai desta aba. O arquivo final é entregue sem ela.
+          A senha fica apenas na memória enquanto você usa este arquivo.
         </p>
       )}
     </form>

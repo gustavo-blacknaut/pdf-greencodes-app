@@ -6,7 +6,7 @@ import { BarChart3, RotateCcw } from 'lucide-react';
 import { versaoDoAplicativo } from '@/lib/desktop';
 import { resetarTudo } from '@/lib/resetar';
 import { PainelDeAtividade } from './PainelDeAtividade';
-import { InicioAutomatico } from './InicioAutomatico';
+import { EDICAO_OPUS, NOME_DO_APP } from '@/lib/edicao';
 
 export function AppBar() {
   const [versao, setVersao] = useState('');
@@ -30,13 +30,12 @@ export function AppBar() {
         {/* A logo leva de volta às ferramentas, de qualquer tela. */}
         <Link href="/app" className="flex items-center gap-3" title="Voltar para as ferramentas">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-128.png" alt="" className="h-7 w-7 shrink-0" />
-          <span className="text-[15px] font-semibold tracking-tight">PDF.GreenCodes</span>
+          {EDICAO_OPUS ? <span aria-hidden className="flex h-7 w-7 items-center justify-center rounded-md bg-ink text-lg font-bold text-bg">O</span> : <img src="/logo-128.png" alt="" className="h-7 w-7 shrink-0" />}
+          <span className="text-[15px] font-semibold tracking-tight">{NOME_DO_APP}</span>
         </Link>
         {versao && <span className="text-xs tabular-nums text-muted">{versao}</span>}
 
         <div className="ml-auto flex items-center gap-2">
-          <InicioAutomatico />
           <button
             type="button"
             onClick={() => (confirmando ? resetarTudo() : setConfirmando(true))}

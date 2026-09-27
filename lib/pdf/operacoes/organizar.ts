@@ -679,43 +679,6 @@ export async function booklet(ctx: RunContext): Promise<RunResult> {
   };
 }
 
-/** Separa o documento em dois: um com as páginas ímpares, outro com as pares. */
-export async function oddEven(ctx: RunContext): Promise<RunResult> {
-  const { PDFDocument } = await loadPdfLib();
-  const source = ctx.files[0];
-  const origem = await openWithPdfLib(source.bytes, source.senha);
-  const total = origem.getPageCount();
-
-  const impares = Array.from({ length: total }, (_, i) => i).filter((i) => i % 2 === 0);
-  const pares = Array.from({ length: total }, (_, i) => i).filter((i) => i % 2 === 1);
-
-  const saidas: OutputFile[] = [];
-  let outputBytes = 0;
-
-  for (const [rotulo, indices] of [
-    ['impares', impares],
-    ['pares', pares],
-  ] as const) {
-    if (!indices.length) continue;
-    ctx.onProgress(rotulo === 'impares' ? 0.2 : 0.6, `Separando as ${rotulo}`);
-    const out = await PDFDocument.create();
-    for (const pagina of await out.copyPages(origem, indices)) out.addPage(pagina);
-    const blob = await salvarPdf(out, source.senha);
-    outputBytes += blob.size;
-    saidas.push({ name: suffixName(source.name, rotulo), blob, pages: indices.length });
-    await respirar(ctx);
-  }
-
-  ctx.onProgress(1);
-  return {
-    files: saidas,
-    inputBytes: source.size,
-    outputBytes,
-    notes: [`${impares.length} página(s) ímpar(es) e ${pares.length} par(es), contando a partir de 1.`],
-  };
-}
-
-/** Insere folhas em branco, para imprimir frente e verso ou tomar nota. */
 export async function blankPages(ctx: RunContext): Promise<RunResult> {
   const { PDFDocument } = await loadPdfLib();
   const source = ctx.files[0];

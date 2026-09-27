@@ -19,6 +19,7 @@ import { ORGANIZAR } from './ferramentas/organizar';
 import { OTIMIZAR } from './ferramentas/otimizar';
 import { PRIVACIDADE } from './ferramentas/privacidade';
 import type { Field, Tool } from './ferramentas/tipos';
+import { EDICAO_OPUS } from './edicao';
 
 export type { BoardMode, Field, FieldBase, Tool } from './ferramentas/tipos';
 
@@ -45,7 +46,7 @@ export const ORDEM = [
   'calibrar-impressao',
   'separar-por-tamanho',
   'padronizar-orientacao',
-  'relatorio-paginas',
+  'informacoes-pdf',
   'gerar-qrcode',
   'gerar-codigo-barras',
   'numeracao-sequencial',
@@ -55,15 +56,11 @@ export const ORDEM = [
   'marcas-de-dobra',
   'frente-e-verso',
   'carimbar-logo',
-  'separar-chapas',
-  'cobertura-de-tinta',
-  'verificar-impressao',
   'espelhar-pdf',
   'repetir-paginas',
   'converter-imagem',
   'redimensionar-imagem',
   'comprimir-imagem',
-  'heic-para-jpg',
   'melhorar-imagem',
   'cortar-imagem',
   'remover-fundo',
@@ -103,7 +100,6 @@ export const ORDEM = [
   'cabecalho-rodape',
   'dividir-paginas',
   'livreto-pdf',
-  'separar-pares-impares',
   'paginas-em-branco',
   'excel-para-pdf',
   'powerpoint-para-pdf',
@@ -125,10 +121,22 @@ const CATALOGO = [
   ...PRIVACIDADE,
 ];
 
-export const TOOLS: Tool[] = [...CATALOGO].sort(
-  (a, b) =>
-    (ORDEM.indexOf(a.slug) + 1 || ORDEM.length + 1) - (ORDEM.indexOf(b.slug) + 1 || ORDEM.length + 1),
-);
+export const FERRAMENTAS_COMPLETAS = new Set([
+  'adicionar-sangria', 'marcas-de-corte', 'calibrar-impressao', 'carimbar-logo',
+  'cartao-de-visita', 'girar-pdf', 'paginas-em-branco', 'marcas-de-dobra',
+  'cabecalho-rodape', 'assinar-pdf', 'marca-dagua', 'separar-por-tamanho',
+  'repetir-paginas', 'frente-e-verso', 'dividir-paginas',
+]);
+
+export function ferramentasDaEdicao(opus: boolean): Tool[] {
+  const posicao = (slug: string) => ORDEM.indexOf(slug) + 1 || ORDEM.length + 1;
+  return CATALOGO.filter((tool) => !opus || !FERRAMENTAS_COMPLETAS.has(tool.slug)).sort(
+    (a, b) => Number(FERRAMENTAS_COMPLETAS.has(a.slug)) - Number(FERRAMENTAS_COMPLETAS.has(b.slug))
+      || posicao(a.slug) - posicao(b.slug),
+  );
+}
+
+export const TOOLS: Tool[] = ferramentasDaEdicao(EDICAO_OPUS);
 
 /**
  * O que funciona no site. O resto aparece lá com o selo "Só no aplicativo" e

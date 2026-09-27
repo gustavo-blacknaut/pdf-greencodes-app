@@ -22,6 +22,7 @@ import {
   emoldurar,
   girar,
   limparDigitalizacao,
+  limparFotoDigitalizada,
   removerFundo,
   trocarCor,
   type Giro,
@@ -174,22 +175,29 @@ export async function removeBackground(ctx: RunContext): Promise<RunResult> {
     // O fundo novo entra por baixo com `drawImage`, que compõe respeitando o
     // alfa — inclusive o meio-tom da borda suavizada.
     const canvas = document.createElement('canvas');
-    canvas.width = recortada.largura;
-    canvas.height = recortada.altura;
-    const pincel = canvas.getContext('2d');
-    if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
-    pincel.fillStyle = `rgb(${corNova[0]}, ${corNova[1]}, ${corNova[2]})`;
-    pincel.fillRect(0, 0, canvas.width, canvas.height);
-    pincel.drawImage(canvasDe(recortada), 0, 0);
+    const primeiroPlano = canvasDe(recortada);
+    try {
+      canvas.width = recortada.largura;
+      canvas.height = recortada.altura;
+      const pincel = canvas.getContext('2d');
+      if (!pincel) throw new Error('O navegador não deixou desenhar a imagem.');
+      pincel.fillStyle = `rgb(${corNova[0]}, ${corNova[1]}, ${corNova[2]})`;
+      pincel.fillRect(0, 0, canvas.width, canvas.height);
+      pincel.drawImage(primeiroPlano, 0, 0);
 
-    const alvo = FORMATOS_DE_SAIDA[formato];
-    return {
-      name: nomeNoFormato(arquivo.name, formato),
-      blob: await canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined),
-    };
+      const alvo = FORMATOS_DE_SAIDA[formato];
+      return {
+        name: nomeNoFormato(arquivo.name, formato),
+        blob: await canvasToBlob(canvas, alvo.mime, alvo.temQualidade ? qualidade : undefined),
+      };
+    } finally {
+      canvas.width = canvas.height = 0;
+      primeiroPlano.width = primeiroPlano.height = 0;
+    }
   });
 
   const notas = [
+    'Dimensões e cores originais preservadas; a remoção altera somente a transparência do fundo e do contorno.',
     trocar
       ? 'O fundo antigo saiu e o novo entrou por baixo, respeitando a borda suavizada.'
       : 'O fundo saiu e virou transparência. Por isso o resultado é PNG: JPG não guarda transparência.',
@@ -213,12 +221,14 @@ export async function removeBackground(ctx: RunContext): Promise<RunResult> {
 // -------------------------------------------------- limpar digitalização ---
 
 export async function cleanScan(ctx: RunContext): Promise<RunResult> {
-  const { formato, qualidade } = saidaEscolhida(ctx, 'jpeg');
-  const forca = numero(ctx.options.forca, 0, 100, 85) / 100;
+  const { formato, qualidade } = saidaEscolhida(ctx, 'png');
+  const forca = numero(ctx.options.forca, 0, 100, 50) / 100;
+  const foto = ctx.options.modo !== 'documento';
   const paraPB = ligado(ctx.options.paraPB, false);
 
   const saidas = await porArquivo(ctx, async (imagem, arquivo) => {
-    let mapa = limparDigitalizacao(await pixelsDe(imagem), forca);
+    const original = await pixelsDe(imagem);
+    let mapa = foto ? limparFotoDigitalizada(original, forca) : limparDigitalizacao(original, forca);
     if (paraPB) mapa = trocarCor(mapa, 'pb');
     return {
       name: nomeNoFormato(arquivo.name, formato),
@@ -226,7 +236,10 @@ export async function cleanScan(ctx: RunContext): Promise<RunResult> {
     };
   });
 
-  const notas = [
+  const notas = foto ? [
+    'A luminosidade foi ajustada com o mesmo ganho nos três canais, preservando a relação entre as cores.',
+    'Dimensões originais mantidas. PNG preserva o resultado sem recompressão com perda.',
+  ] : [
     'O papel foi levado para o branco e a tinta para o preto, cada canal de cor com o seu próprio ponto — ' +
       'é isso que tira o amarelado do papel velho, em vez de deixá-lo só mais claro.',
     'O ponto de branco sai do percentil, e não do pixel mais claro: um único reflexo do vidro do scanner ' +
@@ -234,10 +247,10 @@ export async function cleanScan(ctx: RunContext): Promise<RunResult> {
   ];
   if (paraPB) {
     notas.push('Levado a preto e branco puro, com o corte escolhido pela própria imagem. Ideal para fotocópia.');
-  } else {
+  } else if (!foto) {
     notas.push('Página em branco continua em branco: sem faixa de tom para esticar, a folha só é clareada.');
   }
-  notas.push('Fundo branco de verdade também economiza toner: o que era cinza-claro deixa de ser impresso.');
+  if (!foto) notas.push('Fundo branco de verdade também economiza toner: o que era cinza-claro deixa de ser impresso.');
 
   return entregar(ctx, saidas, 'digitalizacoes-limpas', notas);
 }

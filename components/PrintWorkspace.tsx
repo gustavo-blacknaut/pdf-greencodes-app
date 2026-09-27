@@ -45,10 +45,12 @@ import { AJUSTES_NEUTROS, ajustesDe, type Ajustes } from '@/lib/impressao/ajuste
 import { avisoDaFolha } from '@/lib/impressao/folha';
 import { selecionarImpressora } from '@/lib/impressao/papeis';
 import { nomeDaParte } from '@/lib/impressao/envio';
+import { desbloquearParaImpressao } from '@/lib/impressao/desbloquear';
+import { resultadoParaImpressao } from '@/lib/impressao/resultado';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
 import { inspectFile, runOperation } from '@/lib/pdf/engine';
-import { openWithPdfJs } from '@/lib/pdf/nucleo';
+import { isPasswordError, openWithPdfJs } from '@/lib/pdf/nucleo';
 import { validarFila, usarLimitesDoAplicativo } from '@/lib/pdf/guards';
 import {
   aoSoltarArquivos,
@@ -285,15 +287,26 @@ export function PrintWorkspace() {
     const alvo = parametros.get('arquivo');
     const escolhidos = alvo ? entrada.files.filter((f) => f.name === alvo) : entrada.files;
     const lista = escolhidos.length ? escolhidos : entrada.files;
-    fonteRecebidaRef.current = fonte;
     if (parametros.get('escala') === 'original') {
       setOpcoes((atuais) => opcoesParaFolhaMontada(atuais, parametros.get('papel')));
     }
-    adicionar(
-      lista.map((f) => f.blob),
-      lista.map((f) => f.name),
-    );
-    vault.purge(fonte, 'saiu');
+    let ativo = true;
+    void (async () => {
+      try {
+        const blobs: Blob[] = [];
+        for (const arquivo of lista) {
+          if (!ativo) return;
+          blobs.push(await resultadoParaImpressao(arquivo));
+        }
+        if (!ativo) return;
+        adicionar(blobs, lista.map((f) => f.name));
+        fonteRecebidaRef.current = fonte;
+        vault.purge(fonte, 'saiu');
+      } catch (erro) {
+        if (ativo) setErroGeral(erro instanceof Error ? erro.message : 'Não foi possível ler o resultado para impressão.');
+      }
+    })();
+    return () => { ativo = false; };
     // Só na montagem: depois disso quem manda é a fila na tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -336,7 +349,8 @@ export function PrintWorkspace() {
             options: {},
             onProgress: () => {},
           });
-          pdf = resultado.files[0].blob;
+          if (!resultado.files[0]) throw new Error('A conversão não gerou um PDF.');
+          pdf = await resultadoParaImpressao(resultado.files[0]);
           // O nome da conversão é genérico ("imagens.pdf"): na fila o que
           // importa é reconhecer de qual arquivo veio.
           nomeFinal = replaceExtension(alvo.nomeOriginal, 'pdf');
@@ -349,8 +363,10 @@ export function PrintWorkspace() {
         atualizar({ estado: 'pronto', blob: pdf, paginas, nome: nomeFinal });
         atividade.fechar(tarefaConv, 'concluida', `${paginas} página(s)`);
       } catch (e) {
-        atualizar({ estado: 'erro', erro: e instanceof Error ? e.message : 'Não foi possível preparar o arquivo.' });
-        atividade.fechar(tarefaConv, 'erro', e instanceof Error ? e.message : undefined);
+        const protegido = isPasswordError(e);
+        const erro = protegido ? 'Informe a senha para preparar a impressão.' : e instanceof Error ? e.message : 'Não foi possível preparar o arquivo.';
+        atualizar({ estado: protegido ? 'senha' : 'erro', erro });
+        atividade.fechar(tarefaConv, 'erro', erro);
       } finally {
         convertendoRef.current = false;
         // Empurra o laço: o próximo "esperando" entra na rodada seguinte.
@@ -465,6 +481,15 @@ export function PrintWorkspace() {
 
   function remover(id: string) {
     setFila((atual) => atual.filter((i) => i.id !== id));
+  }
+
+  async function destravar(id: string, senha: string) {
+    const alvo = filaRef.current.find((arquivo) => arquivo.id === id);
+    if (!alvo || alvo.estado !== 'senha') return;
+    const liberado = await desbloquearParaImpressao(alvo.origem, senha);
+    setFila((atual) => atual.map((arquivo) => arquivo.id === id
+      ? { ...arquivo, ...liberado, origem: liberado.blob, estado: 'pronto', erro: undefined }
+      : arquivo));
   }
 
   /** Os ajustes são de cada arquivo: mexer num não mexe no outro. */
@@ -609,6 +634,7 @@ export function PrintWorkspace() {
   const aImprimir = pendentes.length ? pendentes : prontos;
   const totalPaginas = prontos.reduce((soma, i) => soma + i.paginas, 0);
   const preparando = fila.some((i) => i.estado === 'esperando' || i.estado === 'convertendo');
+  const aguardandoSenha = fila.some((i) => i.estado === 'senha');
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 pb-12 sm:px-6">
@@ -675,7 +701,7 @@ export function PrintWorkspace() {
                 />
               </>
             ) : null}
-            <JuntarFila fila={fila} desabilitado={preparando || Boolean(imprimindo)} onJuntar={(unido) => {
+            <JuntarFila fila={fila} desabilitado={preparando || aguardandoSenha || Boolean(imprimindo)} onJuntar={(unido) => {
               const unidos = new Set(fila.map((i) => i.id));
               setFila((atual) => [unido, ...atual.filter((i) => !unidos.has(i.id))]);
               setSelecionado(unido.id); setMontado(null); setIntervalo('');
@@ -689,6 +715,7 @@ export function PrintWorkspace() {
               aceita={ACEITA}
               onSelecionar={setSelecionado}
               onRemover={remover}
+              onDestravar={destravar}
               onAdicionar={(arquivos) => void receberArquivos(arquivos)}
             />
 
@@ -705,7 +732,7 @@ export function PrintWorkspace() {
             prontos={aImprimir.length}
             deNovo={!pendentes.length && prontos.length > 0}
             imprimindo={imprimindo}
-            preparando={preparando}
+            preparando={preparando || aguardandoSenha}
             aviso={aviso}
             onMudar={mudar}
             onIntervalo={setIntervalo}

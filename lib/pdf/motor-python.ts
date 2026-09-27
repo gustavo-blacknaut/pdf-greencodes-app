@@ -158,7 +158,6 @@ const NO_PYTHON: Record<string, Traducao> = {
   },
   reverse: { acao: 'inverter-paginas', rotulo: 'Invertendo a ordem' },
   booklet: { acao: 'livreto', rotulo: 'Montando o livreto' },
-  'odd-even': { acao: 'separar-pares-impares', rotulo: 'Separando' },
   repair: { acao: 'reparar', rotulo: 'Reparando' },
   'strip-metadata': { acao: 'limpar-metadados', rotulo: 'Limpando os dados' },
   'set-metadata': {
@@ -265,10 +264,10 @@ const NO_PYTHON: Record<string, Traducao> = {
         : { porArquivo: numero(o.every, 1) },
   },
 
-  'separate-plates': {
-    acao: 'separar-chapas',
-    rotulo: 'Separando as chapas',
-    opcoes: (o) => ({ dpi: numero(o.dpi, 150), chapas: String(o.chapas ?? 'cmyk') }),
+  'pdf-information': {
+    acao: 'informacoes-pdf',
+    rotulo: 'Conferindo o PDF',
+    opcoes: (o) => ({ dpi: 150, papel: String(o.papel ?? 'digital'), limite: numero(o.limite, 300) }),
   },
   'ink-coverage': {
     acao: 'cobertura-de-tinta',
@@ -305,7 +304,8 @@ const NO_PYTHON: Record<string, Traducao> = {
       sangriaMm: numero(o.sangriaMm, 2),
       // Zero quer dizer "quantas couberem", que é o padrão do motor.
       quantidade: numero(o.quantidade, 0),
-      dpi: numero(o.dpi, 300),
+      dpi: numero(o.dpi, 600),
+      preservarQualidade: o.preservarQualidade !== false,
     }),
   },
   'pdf-to-images': {

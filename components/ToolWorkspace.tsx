@@ -48,6 +48,7 @@ import {
 } from '@/lib/pdf/guards';
 import { getEngineStatus, subscribeEngineStatus, warmEngine, type EngineStatus } from '@/lib/pdf/lazy';
 import { defaultOptions, isFieldVisible, type BoardMode, type Tool } from '@/lib/tools';
+import { atualizarOpcao } from '@/lib/ferramentas/atualizar-opcao';
 import { cx, formatBytes } from '@/lib/utils';
 import {
   aoReceberArquivosDoSistema,
@@ -771,7 +772,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
                       key={field.key}
                       field={field}
                       value={options[field.key]}
-                      onChange={(value) => setOptions((current) => ({ ...current, [field.key]: value }))}
+                      onChange={(value) => setOptions((current) => atualizarOpcao(tool.operation, current, field.key, value))}
                     />
                   ))}
                 </div>

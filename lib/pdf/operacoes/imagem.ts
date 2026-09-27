@@ -83,8 +83,8 @@ async function gravar(
 // ------------------------------------------------------------- converter ---
 
 export async function convertImage(ctx: RunContext): Promise<RunResult> {
-  const formato = formatoValido(ctx.options.formato);
-  const qualidade = Math.min(1, Math.max(0.3, Number(ctx.options.qualidade ?? 90) / 100));
+  const formato = formatoValido(ctx.options.formato ?? 'png');
+  const qualidade = Math.min(1, Math.max(0.3, Number(ctx.options.qualidade ?? 100) / 100));
 
   const saidas = await porArquivo(ctx, async (imagem, arquivo) => ({
     name: nomeNoFormato(arquivo.name, formato),
@@ -241,28 +241,7 @@ export async function compressImage(ctx: RunContext): Promise<RunResult> {
 // ------------------------------------------------------------------ heic ---
 
 export async function heicToImage(ctx: RunContext): Promise<RunResult> {
-  const formato = formatoValido(ctx.options.formato ?? 'jpeg');
-  const qualidade = Math.min(1, Math.max(0.3, Number(ctx.options.qualidade ?? 92) / 100));
-
-  const ehHeic = (nome: string, tipo: string) =>
-    /\.(heic|heif)$/i.test(nome) || tipo === 'image/heic' || tipo === 'image/heif';
-  const nenhumHeic = ctx.files.every((a) => !ehHeic(a.name, a.type));
-  if (nenhumHeic) {
-    throw new Error(
-      'Nenhum arquivo HEIC na fila. Esta ferramenta é para a foto que sai do iPhone; ' +
-        'para os outros formatos, use "Converter imagem".',
-    );
-  }
-
-  const saidas = await porArquivo(ctx, async (imagem, arquivo) => ({
-    name: nomeNoFormato(arquivo.name, formato),
-    blob: await gravar(imagem, { largura: imagem.largura, altura: imagem.altura }, formato, qualidade),
-  }));
-
-  return entregar(ctx, saidas, 'fotos-convertidas', [
-    `HEIC convertido para ${FORMATOS_DE_SAIDA[formato].extensao.toUpperCase()}, no tamanho original.`,
-    'O HEIC é o formato que o iPhone grava desde 2017. Nem o navegador nem a maioria dos programas abrem — por isso a conversão.',
-  ]);
+  return convertImage(ctx);
 }
 
 // ------------------------------------------------- ampliar e recortar ---
@@ -291,7 +270,7 @@ export async function enhanceImage(ctx: RunContext): Promise<RunResult> {
   const formato = formatoValido(ctx.options.formato ?? 'png');
   const qualidade = Math.min(1, Math.max(0.3, Number(ctx.options.qualidade ?? 95) / 100));
   const escala = Math.min(8, Math.max(1, Number(ctx.options.escala ?? 2)));
-  const nitidez = Math.min(2, Math.max(0, Number(ctx.options.nitidez ?? 0.6)));
+  const nitidez = Math.min(2, Math.max(0, Number(ctx.options.nitidez ?? 60) / 100));
 
   let reduziu = false;
 
@@ -331,10 +310,10 @@ export async function enhanceImage(ctx: RunContext): Promise<RunResult> {
 }
 
 /**
- * Recorta sem a perda que o Paint cobra.
+ * Recorta os pixels sem reamostragem.
  *
  * Copiar um pedaço é exato — nenhum pixel é interpolado. A perda que aparece
- * ao recortar no Paint não vem do corte: vem de gravar de novo em JPEG, que
+ * ao recortar não vem do corte: vem de gravar de novo em JPEG, que
  * recomprime a imagem inteira e cobra o preço em cima do que já tinha sido
  * cobrado quando a foto foi tirada. Por isso o padrão aqui é PNG, que é sem
  * perda; quem escolher JPG recebe o aviso.
@@ -422,8 +401,8 @@ export async function cropImage(ctx: RunContext): Promise<RunResult> {
         : ['Aparadas pelas margens que você informou.'];
 
   notas.push(
-    'O corte em si não perde nada: é cópia de pixel, sem interpolação. A perda que aparece no Paint ' +
-      'vem de gravar de novo em JPEG, que recomprime a imagem inteira.',
+    'O recorte copia os pixels sem interpolação. Salvar em PNG preserva o resultado; ' +
+      'JPEG recomprime a imagem e pode introduzir perda.',
   );
   if (formato === 'jpeg') {
     notas.push('Você escolheu JPG, então há uma recompressão. Em PNG o recorte sai idêntico ao original.');

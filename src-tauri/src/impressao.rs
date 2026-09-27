@@ -19,12 +19,15 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::motor::recursos;
+
+static PROXIMA_SESSAO: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -98,14 +101,16 @@ pub struct OpcoesDeImpressao {
 impl Sessoes {
     pub fn preparar(&self) -> Result<Preparada, String> {
         let id = format!(
-            "greencodes-{}",
+            "greencodes-{}-{}-{}",
+            std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|e| e.to_string())?
-                .as_nanos()
+                .as_nanos(),
+            PROXIMA_SESSAO.fetch_add(1, Ordering::Relaxed)
         );
         let pasta = std::env::temp_dir().join(&id);
-        fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
+        fs::create_dir(&pasta).map_err(|e| e.to_string())?;
         self.abertas
             .lock()
             .map_err(|_| "sessoes travadas")?
@@ -287,6 +292,21 @@ fn numero_da_folha(caminho: &std::path::Path) -> u32 {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn sessoes_simultaneas_nao_compartilham_pasta() {
+        let sessoes = Sessoes::default();
+        let ids: Vec<_> = (0..128).map(|_| sessoes.preparar().unwrap().id).collect();
+        let unicos: std::collections::HashSet<_> = ids.iter().collect();
+        assert_eq!(unicos.len(), ids.len());
+        for (i, id) in ids.iter().enumerate() {
+            sessoes.pagina(id, 1, vec![i as u8]).unwrap();
+        }
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(fs::read(sessoes.pasta(id).unwrap().join("0001.jpg")).unwrap(), vec![i as u8]);
+        }
+        sessoes.limpar_tudo();
+    }
 
     #[test]
     fn folhas_saem_na_ordem_do_numero() {

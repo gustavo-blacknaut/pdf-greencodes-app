@@ -36,7 +36,7 @@ describe('o que a pessoa digita acha o que ela quer', () => {
     ['por senha', 'proteger-pdf'],
     ['tirar fundo', 'remover-fundo'],
     ['png transparente', 'remover-fundo'],
-    ['iphone', 'heic-para-jpg'],
+    ['iphone', 'converter-imagem'],
     ['scanner', 'limpar-digitalizacao'],
     ['pix', 'gerar-qrcode'],
     ['etiqueta de preco', 'gerar-codigo-barras'],

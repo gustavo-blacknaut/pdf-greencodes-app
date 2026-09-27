@@ -85,7 +85,8 @@ class TestFolhaDeFotos:
         assert resultado["linhas"] == 3
 
         doc = pymupdf.open(destino)
-        assert len(doc[0].get_images()) == 9
+        imagem = doc[0].get_images()[0][0]
+        assert len(doc[0].get_image_rects(imagem)) == 9
         doc.close()
 
     def test_papel_no_tamanho_certo(self, criar_foto, rodar, tmp_path):
@@ -162,7 +163,7 @@ class TestResolucaoDaFolha:
         rodar(
             "folha-de-fotos",
             [criar_foto(largura=2000, altura=3000)],
-            {"modelo": "5x7", "papel": "10x15", "dpi": 300},
+            {"modelo": "5x7", "papel": "10x15", "dpi": 300, "preservarQualidade": False},
             saida=destino,
         )
 
@@ -204,6 +205,30 @@ class TestResolucaoDaFolha:
         assert tamanho < 1_000_000, f"a folha saiu com {tamanho / 1024 / 1024:.1f} MB"
 
 
+class TestQualidadeOriginal:
+    @pytest.mark.parametrize("modelo", ["10x15", "13x18", "15x20"])
+    def test_jpeg_original_fica_intacto_em_todos_os_formatos(self, criar_foto, rodar, tmp_path, modelo):
+        origem = criar_foto(largura=2000, altura=3000)
+        destino = str(tmp_path / "qualidade.pdf")
+        resultado = rodar("folha-de-fotos", [origem], {"modelo": modelo, "papel": modelo}, saida=destino)
+        with open(origem, "rb") as arquivo:
+            original = arquivo.read()
+        with pymupdf.open(destino) as doc:
+            info = doc.extract_image(doc[0].get_images()[0][0])
+            assert (info["width"], info["height"]) == (2000, 3000)
+            assert info["image"] == original
+        assert resultado["qualidadeOriginal"] is True
+        assert resultado["esticada"] is False
+
+    def test_pdf_conserva_texto_e_vetores_sem_rasterizar(self, criar_pdf, rodar, tmp_path):
+        origem = criar_pdf(paginas=1)
+        destino = str(tmp_path / "vetor.pdf")
+        rodar("folha-de-fotos", [origem], {"modelo": "15x20", "papel": "15x20"}, saida=destino)
+        with pymupdf.open(destino) as doc:
+            assert "Pagina 1" in doc[0].get_text()
+            assert not doc[0].get_images()
+
+
 class TestRevelacaoAvulsa:
     """10x15, 13x18 e 15x20 não são grade: são uma foto só, do tamanho do
     papel — a revelação de laboratório de verdade, sem borda branca."""
@@ -221,12 +246,14 @@ class TestRevelacaoAvulsa:
         assert round(doc[0].rect.width * MM) == 130
         assert round(doc[0].rect.height * MM) == 180
 
-        # A imagem cobre a pagina inteira: sem borda significa a caixa da
-        # imagem batendo com a caixa da pagina, nao sobrando papel em volta.
+        # O PDF preserva a imagem inteira e limita a parte visivel pelo recorte.
         imagem = doc[0].get_image_bbox(doc[0].get_images(full=True)[0])
         pagina = doc[0].rect
-        assert abs(imagem.width - pagina.width) < 1
-        assert abs(imagem.height - pagina.height) < 1
+        assert imagem.width >= pagina.width - 1
+        assert imagem.height >= pagina.height - 1
+        previa = doc[0].get_pixmap()
+        for x, y in [(1, 1), (previa.width - 2, 1), (1, previa.height - 2), (previa.width - 2, previa.height - 2)]:
+            assert min(previa.pixel(x, y)) < 200
         doc.close()
 
     def test_15x20_no_papel_15x20(self, criar_foto, rodar, tmp_path):
@@ -263,7 +290,7 @@ class TestEsticar:
         doc.close()
         return info["width"] / info["height"]
 
-    def test_sem_esticar_a_imagem_embutida_fica_na_proporcao_do_modelo(self, criar_foto, rodar, tmp_path):
+    def test_sem_esticar_o_recorte_preserva_a_proporcao_dos_pixels(self, criar_foto, rodar, tmp_path):
         # Modelo 13x18: 130/180 = 0.722. Um recorte quadrado (1:1) tem que
         # sair cortado para bater com isso.
         destino = str(tmp_path / "cortado.pdf")
@@ -273,8 +300,11 @@ class TestEsticar:
             {"modelo": "13x18", "papel": "13x18", "recorte": self.RECORTE_QUADRADO, "esticar": False},
             saida=destino,
         )
-        proporcao = self.proporcao_da_imagem_embutida(destino)
-        assert abs(proporcao - 130 / 180) < 0.02
+        with pymupdf.open(destino) as doc:
+            info = doc.extract_image(doc[0].get_images()[0][0])
+            caixa = doc[0].get_image_bbox(doc[0].get_images(full=True)[0])
+            assert abs(caixa.width / info["width"] - caixa.height / info["height"]) < 0.001
+            assert (info["width"], info["height"]) == (800, 800)
 
     def test_esticar_mantem_a_proporcao_do_recorte_original(self, criar_foto, rodar, tmp_path):
         destino = str(tmp_path / "esticado.pdf")
@@ -431,10 +461,15 @@ class TestPolaroid:
         doc = pymupdf.open(destino)
         MM = 25.4 / 72
         imagens = [r for xref in {i[0] for i in doc[0].get_images(full=True)} for r in doc[0].get_image_rects(xref)]
-        doc.close()
         assert imagens, "a folha saiu sem foto"
         assert round(imagens[0].width * MM) == 68
-        assert round(imagens[0].height * MM) == 51
+        pix = doc[0].get_pixmap(dpi=254)
+        # Em 254 DPI cada mm corresponde a 10 pixels: a janela ocupa y=14,7..65,6.
+        assert min(pix.pixel(100, 150)) < 200
+        assert min(pix.pixel(100, 650)) < 200
+        assert min(pix.pixel(100, 660)) > 245
+        assert min(pix.pixel(100, 140)) > 245
+        doc.close()
 
     def test_escreve_na_tarja_o_que_foi_pedido(self, criar_foto, rodar, tmp_path):
         destino = str(tmp_path / "polaroid.pdf")

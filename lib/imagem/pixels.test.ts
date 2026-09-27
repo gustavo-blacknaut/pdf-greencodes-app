@@ -15,6 +15,7 @@ import {
   histogramaDeBrilho,
   limiarDeOtsu,
   limparDigitalizacao,
+  limparFotoDigitalizada,
   luminancia,
   percentil,
   removerFundo,
@@ -321,6 +322,55 @@ describe('remover fundo', () => {
     const imagem = bitmap(5, 5, (x, y) => (x === 2 && y === 2 ? [10, 20, 30] : [255, 255, 255]));
     const { imagem: saida } = removerFundo(imagem, { tolerancia: 10, suavizar: true });
     expect(pixel(saida, 2, 2).slice(0, 3)).toEqual([10, 20, 30]);
+  });
+
+  it('preserva traços de um pixel sem criar halo no fundo removido', () => {
+    const imagem = bitmap(7, 7, (x, y) => x === 3 && y > 0 && y < 6 ? [20, 30, 40] : [255, 255, 255]);
+    const { imagem: saida } = removerFundo(imagem, { suavizar: true });
+    expect(pixel(saida, 3, 3)).toEqual([20, 30, 40, 255]);
+    expect(pixel(saida, 2, 3)[3]).toBe(0);
+    expect([saida.largura, saida.altura]).toEqual([7, 7]);
+  });
+
+  it('mantém a transparência original do desenho', () => {
+    const imagem = bitmap(5, 5, (x, y) => x === 2 && y === 2 ? [20, 30, 40, 128] : [255, 255, 255]);
+    const { imagem: saida } = removerFundo(imagem, { suavizar: true });
+    expect(pixel(saida, 2, 2)).toEqual([20, 30, 40, 128]);
+    expect(pixel(imagem, 0, 0)[3]).toBe(255);
+  });
+
+  it('ignora RGB invisível ao descobrir a cor da borda', () => {
+    const imagem = bitmap(5, 5, (x, y) => x === 0 ? [255, 255, 255, 255] : [0, 0, 0, 0]);
+    expect(corDaBorda(imagem)).toEqual([255, 255, 255]);
+  });
+});
+
+describe('limpar foto digitalizada', () => {
+  it('preserva a relação entre canais em fotos coloridas', () => {
+    const foto = bitmap(20, 20, (x, y) => {
+      const tom = 30 + x * 6 + y;
+      return [tom, Math.round(tom * 0.5), Math.round(tom * 0.25)];
+    });
+    const limpa = limparFotoDigitalizada(foto, 0.5);
+    const original = pixel(foto, 10, 10);
+    const corrigido = pixel(limpa, 10, 10);
+    expect(corrigido[0]).not.toBe(original[0]);
+    expect(corrigido[1] / corrigido[0]).toBeCloseTo(original[1] / original[0], 1);
+    expect(corrigido[2] / corrigido[0]).toBeCloseTo(original[2] / original[0], 1);
+    expect(corrigido[0] - corrigido[2]).toBeGreaterThan(50);
+  });
+
+  it('não transforma uma foto uniforme em cinza ou branco', () => {
+    const foto = cheio(10, 10, [50, 130, 190]);
+    expect(limparFotoDigitalizada(foto, 1).dados).toEqual(foto.dados);
+  });
+
+  it('não altera pixels transparentes nem a imagem quando a força é zero', () => {
+    const foto = bitmap(10, 10, (x, y) => x === 0 ? [10, 20, 30, 0] : [x * 20, y * 20, 50, 128]);
+    const limpa = limparFotoDigitalizada(foto, 1);
+    expect(pixel(limpa, 0, 0)).toEqual([10, 20, 30, 0]);
+    expect(pixel(limpa, 5, 5)[3]).toBe(128);
+    expect(limparFotoDigitalizada(foto, 0).dados).toEqual(foto.dados);
   });
 });
 

@@ -1,5 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, defaultOptions, getTool, isFieldVisible, TOOLS } from './tools';
+import { CATEGORIES, defaultOptions, ferramentasDaEdicao, FERRAMENTAS_COMPLETAS, getTool, isFieldVisible, TOOLS } from './tools';
+
+describe('edições do aplicativo', () => {
+  it('OPUS oferece as ferramentas principais e exclui as dispensadas', () => {
+    const slugs = ferramentasDaEdicao(true).map((tool) => tool.slug);
+    expect(slugs).toContain('imprimir');
+    expect(slugs).toContain('organizar-paginas');
+    expect(slugs).toContain('informacoes-pdf');
+    for (const slug of FERRAMENTAS_COMPLETAS) expect(slugs).not.toContain(slug);
+  });
+
+  it('a edição completa mantém as ferramentas dispensadas no final', () => {
+    const slugs = ferramentasDaEdicao(false).map((tool) => tool.slug);
+    const primeiroExtra = slugs.findIndex((slug) => FERRAMENTAS_COMPLETAS.has(slug));
+    expect(primeiroExtra).toBeGreaterThan(0);
+    expect(slugs.slice(primeiroExtra).every((slug) => FERRAMENTAS_COMPLETAS.has(slug))).toBe(true);
+    for (const slug of FERRAMENTAS_COMPLETAS) expect(slugs).toContain(slug);
+  });
+
+  it('remove as funções permanentes e reúne as três conferências nas duas edições', () => {
+    for (const opus of [false, true]) {
+      const tools = ferramentasDaEdicao(opus);
+      for (const slug of ['separar-chapas', 'separar-pares-impares', 'verificar-impressao', 'relatorio-paginas', 'cobertura-de-tinta']) {
+        expect(tools.some((tool) => tool.slug === slug)).toBe(false);
+      }
+      expect(tools.filter((tool) => tool.operation === 'pdf-information')).toHaveLength(1);
+    }
+  });
+});
 
 describe('registro de ferramentas', () => {
   it('não tem slug repetido, senão duas rotas colidiriam', () => {

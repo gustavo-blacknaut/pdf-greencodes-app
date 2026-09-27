@@ -72,40 +72,6 @@ class TestIntercalar:
         assert resultado["paginas"] == 4
 
 
-class TestSepararParesImpares:
-    def test_gera_dois_arquivos(self, criar_pdf, rodar, tmp_path):
-        pasta = str(tmp_path)
-        resultado = rodar("separar-pares-impares", [criar_pdf(paginas=6)], {}, saida=pasta)
-        assert len(resultado["arquivos"]) == 2
-
-    def test_impares_tem_1_3_5(self, criar_pdf, rodar, tmp_path):
-        pasta = str(tmp_path)
-        resultado = rodar("separar-pares-impares", [criar_pdf(paginas=6)], {}, saida=pasta)
-
-        impares = next(a for a in resultado["arquivos"] if "impares" in a["arquivo"])
-        textos = texto_das_paginas(impares["arquivo"])
-        assert len(textos) == 3
-        assert "Pagina 1" in textos[0]
-        assert "Pagina 3" in textos[1]
-        assert "Pagina 5" in textos[2]
-
-    def test_pares_tem_2_4_6(self, criar_pdf, rodar, tmp_path):
-        pasta = str(tmp_path)
-        resultado = rodar("separar-pares-impares", [criar_pdf(paginas=6)], {}, saida=pasta)
-
-        pares = next(a for a in resultado["arquivos"] if a["arquivo"].endswith("pares.pdf") and "impares" not in a["arquivo"])
-        textos = texto_das_paginas(pares["arquivo"])
-        assert len(textos) == 3
-        assert "Pagina 2" in textos[0]
-
-    def test_numero_impar_de_paginas_nao_gera_arquivo_vazio(self, criar_pdf, rodar, tmp_path):
-        # 1 pagina so: so tem impar (a pagina 1), pares fica vazio e nao deve
-        # virar um arquivo de 0 paginas.
-        pasta = str(tmp_path)
-        resultado = rodar("separar-pares-impares", [criar_pdf(paginas=1)], {}, saida=pasta)
-        assert len(resultado["arquivos"]) == 1
-
-
 class TestPaginasEmBranco:
     def test_sem_posicao_insere_uma_no_fim(self, criar_pdf, rodar, tmp_path):
         destino = str(tmp_path / "com-branca.pdf")

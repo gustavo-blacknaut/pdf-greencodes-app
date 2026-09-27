@@ -120,27 +120,6 @@ describe('livreto', () => {
   });
 });
 
-describe('separar pares e ímpares', () => {
-  it('devolve dois arquivos com a contagem certa', async () => {
-    const bytes = await pdfDe(7);
-    const r = await runOperation('odd-even', contexto(bytes));
-
-    expect(r.files).toHaveLength(2);
-    expect(r.files[0].name).toContain('impares');
-    expect(r.files[1].name).toContain('pares');
-    expect((await tamanhosDe(r.files[0].blob)).paginas).toBe(4); // 1, 3, 5, 7
-    expect((await tamanhosDe(r.files[1].blob)).paginas).toBe(3); // 2, 4, 6
-  });
-
-  it('num documento de uma página só, não gera arquivo de pares vazio', async () => {
-    const bytes = await pdfDe(1);
-    const r = await runOperation('odd-even', contexto(bytes));
-
-    expect(r.files).toHaveLength(1);
-    expect(r.files[0].name).toContain('impares');
-  });
-});
-
 describe('inserir páginas em branco', () => {
   it('entre uma página e outra, sem sobrar uma solta no fim', async () => {
     const bytes = await pdfDe(3);

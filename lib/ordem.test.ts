@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FUNCIONAM_NO_SITE,
+  FERRAMENTAS_COMPLETAS,
   ORDEM,
   TOOLS,
   TOOLS_DO_SITE,
@@ -38,10 +39,10 @@ describe('ordem da grade', () => {
   });
 
   it('segue a lista de ordem, sem pular ninguém', () => {
-    // A ordenação é estável e a lista manda: o resultado tem que ser a lista
-    // inteira, na sequência, antes de qualquer ferramenta não listada.
     const listadas = TOOLS.map((t) => t.slug).filter((slug) => ORDEM.includes(slug));
-    expect(listadas).toEqual(ORDEM);
+    const esperadas = ORDEM.filter((slug) => TOOLS.some((tool) => tool.slug === slug));
+    esperadas.sort((a, b) => Number(FERRAMENTAS_COMPLETAS.has(a)) - Number(FERRAMENTAS_COMPLETAS.has(b)));
+    expect(listadas).toEqual(esperadas);
   });
 
   it('a lista de ordem não cita ferramenta que não existe', () => {
@@ -52,9 +53,11 @@ describe('ordem da grade', () => {
   });
 
   it('ferramenta fora da lista aparece no fim, e não some', () => {
-    const foraDaLista = TOOLS.filter((t) => !ORDEM.includes(t.slug));
-    const ultimas = TOOLS.slice(TOOLS.length - foraDaLista.length);
-    expect(ultimas).toEqual(foraDaLista);
+    for (const exclusivas of [false, true]) {
+      const grupo = TOOLS.filter((t) => FERRAMENTAS_COMPLETAS.has(t.slug) === exclusivas);
+      const foraDaLista = grupo.filter((t) => !ORDEM.includes(t.slug));
+      expect(grupo.slice(grupo.length - foraDaLista.length)).toEqual(foraDaLista);
+    }
   });
 
   it('não perdeu nem duplicou ferramenta na divisão por categoria', () => {

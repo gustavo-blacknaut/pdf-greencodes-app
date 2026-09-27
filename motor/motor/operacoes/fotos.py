@@ -87,7 +87,7 @@ PAPEIS: Dict[str, Tuple[float, float]] = {
 MARGEM_PADRAO = 0.0
 ESPACO_PADRAO = 0.0
 
-DPI_PADRAO = 300
+DPI_PADRAO = 600
 DPI_DA_PREVIA = 100
 
 # As fontes que existem em qualquer Windows 10 ou 11. A escrita na tarja da
@@ -350,6 +350,7 @@ def montar_folha(
     fonte_do_texto: str = "script",
     sangria: float = 0.0,
     senha: str = "",
+    preservar_qualidade: bool = True,
 ) -> Tuple[pymupdf.Document, Dict[str, Any]]:
     """Desenha a folha e devolve o documento junto com o que foi feito."""
     if not os.path.exists(origem):
@@ -409,12 +410,6 @@ def montar_folha(
         cabem = colunas * linhas
         quantas = cabem if quantidade is None else max(1, min(cabem, quantidade))
 
-        # A foto recortada é desenhada uma vez e reaproveitada em todas as
-        # casas. Desenhar por casa multiplicaria o tempo e o tamanho do
-        # arquivo por nove sem nenhum ganho. Deitar é trabalho do insert_image,
-        # que resolve na hora de posicionar e dispensa um segundo desenho.
-        # A casa manda na proporcao. Numa moldura quem manda e a janela de
-        # dentro, nao o cartao inteiro.
         if moldura:
             alvo = moldura["largura"] / moldura["altura"]
         elif girado:
@@ -422,10 +417,6 @@ def montar_folha(
         else:
             alvo = largura_foto / altura_foto
 
-        # Esticar pula o recorte pela proporção: pega a área exatamente como
-        # foi selecionada, de qualquer formato, e deixa o insert_image
-        # esticar para preencher a casa. É a "mágica" de caber sem cortar —
-        # o preço é que, se a proporção não bater, a imagem distorce.
         area_final = area if esticar else na_proporcao(area, alvo)
         # Quanto a foto vai medir no papel, de verdade: e dessa medida que sai
         # a resolucao do desenho. Deitada, a largura da imagem cai na altura
@@ -436,14 +427,8 @@ def montar_folha(
             alvo_mm = altura_foto
         else:
             alvo_mm = largura_foto
-        pixels = _desenhar_a_foto(pagina_da_foto, area_final, alvo_mm, dpi)
-        # A casa e preenchida inteira (keep_proportion=False): o recorte ja
-        # saiu na proporcao dela, e o arredondamento de pixel do desenho
-        # deixava um fio de papel branco em dois lados.
-        # JPEG, e nao o mapa de pixels cru: foto em PNG dentro do PDF e o que
-        # fazia uma folha 10x15 sair com 9,6 MB. A 92 a diferenca nao sai no
-        # papel, e o arquivo cai para menos de um decimo.
-        foto = pixels.tobytes("jpeg", jpg_quality=92)
+        pixels = None if preservar_qualidade else _desenhar_a_foto(pagina_da_foto, area_final, alvo_mm, dpi)
+        foto = None if pixels is None else pixels.tobytes("jpeg", jpg_quality=98)
         giro = 90 if girado else 0
 
         folha = pymupdf.open()
@@ -477,11 +462,17 @@ def montar_folha(
                         moldura["largura"],
                         moldura["altura"],
                     )
-                    pagina.insert_image(dentro, stream=foto, rotate=giro, keep_proportion=False)
+                    if preservar_qualidade:
+                        pagina.show_pdf_page(dentro, imagem, 0, clip=area_final, rotate=giro, keep_proportion=False)
+                    else:
+                        pagina.insert_image(dentro, stream=foto, rotate=giro, keep_proportion=False)
                     if texto:
                         _escrever_na_tarja(pagina, caixa, dentro, texto, fonte_do_texto)
                 else:
-                    pagina.insert_image(caixa, stream=foto, rotate=giro, keep_proportion=False)
+                    if preservar_qualidade:
+                        pagina.show_pdf_page(caixa, imagem, 0, clip=area_final, rotate=giro, keep_proportion=False)
+                    else:
+                        pagina.insert_image(caixa, stream=foto, rotate=giro, keep_proportion=False)
 
                 if modelo.get("redondo"):
                     # Guia de corte redondo: um círculo fino por cima marca
@@ -520,6 +511,7 @@ def montar_folha(
             "sangriaMm": round(sangria, 1),
             "medidaFinalMm": [round(medida_final[0], 1), round(medida_final[1], 1)],
             "esticada": esticar and abs(area.width / area.height - alvo) > 0.02,
+            "qualidadeOriginal": preservar_qualidade,
         }
         return folha, resumo
 
@@ -581,6 +573,7 @@ def folha_de_fotos(pedido: Pedido) -> Dict[str, Any]:
         sangria=float(pedido.opcao("sangriaMm", 0)),
         quantidade=None if quantidade in (None, "", 0) else int(quantidade),
         dpi=DPI_DA_PREVIA if previa else max(150, min(600, int(pedido.opcao("dpi", DPI_PADRAO)))),
+        preservar_qualidade=bool(pedido.opcao("preservarQualidade", True)),
     )
 
     pedido.andamento(0.7, "Montando a folha")
@@ -615,6 +608,8 @@ def _recados(resumo: Dict[str, Any]) -> List[str]:
     antes de imprimir, nao depois.
     """
     recados = [_recado(resumo)]
+    if resumo.get("qualidadeOriginal"):
+        recados.append("Imagem original preservada no PDF, sem reduzir pixels nem recomprimir com perda.")
     sangria = float(resumo.get("sangriaMm", 0))
     if sangria:
         final = resumo.get("medidaFinalMm", [0, 0])

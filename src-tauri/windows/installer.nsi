@@ -691,7 +691,10 @@ Section Install
   ; Create file associations
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
-       !insertmacro APP_ASSOCIATE "{{ext}}" "{{or association.name ext}}" "{{association-description association.description ext}}" "$INSTDIR\${MAINBINARYNAME}.exe,0" "Open with ${PRODUCTNAME}" "$INSTDIR\${MAINBINARYNAME}.exe $\"%1$\""
+       WriteRegStr SHCTX "Software\Classes\{{or association.name ext}}" "" "{{association-description association.description ext}}"
+       WriteRegStr SHCTX "Software\Classes\{{or association.name ext}}\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,0"
+       WriteRegStr SHCTX "Software\Classes\{{or association.name ext}}\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+       WriteRegStr SHCTX "Software\Classes\.{{ext}}\OpenWithProgids" "{{or association.name ext}}" ""
     {{/each}}
   {{/each}}
 
@@ -826,7 +829,13 @@ Section Uninstall
   ; Delete app associations
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
-      !insertmacro APP_UNASSOCIATE "{{ext}}" "{{or association.name ext}}"
+      ReadRegStr $R7 SHCTX "Software\Classes\.{{ext}}" ""
+      ${If} $R7 == "{{or association.name ext}}"
+        !insertmacro APP_UNASSOCIATE "{{ext}}" "{{or association.name ext}}"
+      ${Else}
+        DeleteRegKey SHCTX "Software\Classes\{{or association.name ext}}"
+      ${EndIf}
+      DeleteRegValue SHCTX "Software\Classes\.{{ext}}\OpenWithProgids" "{{or association.name ext}}"
     {{/each}}
   {{/each}}
 

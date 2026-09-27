@@ -41,8 +41,8 @@ export async function decodificarImagem(arquivo: {
     return { bitmap, largura: bitmap.width, altura: bitmap.height };
   } catch {
     throw new Error(
-      `Não consegui ler "${arquivo.name}". O navegador abre JPG, PNG, WEBP, GIF, BMP e AVIF; ` +
-        'formato fora dessa lista precisa ser salvo como JPG antes.',
+      `Não consegui ler "${arquivo.name}". São aceitos JPG, PNG, WEBP, GIF, BMP, AVIF, HEIC e HEIF. ` +
+        'Verifique se o arquivo está completo ou exporte uma nova cópia.',
     );
   }
 }

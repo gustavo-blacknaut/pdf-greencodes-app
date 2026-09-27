@@ -13,8 +13,8 @@
  * avesso) está em `lib/imagem/recorte.ts`, medida por teste.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Maximize2, Plus, Scissors } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, Maximize2, Plus, Scissors, ZoomIn, ZoomOut } from 'lucide-react';
 import { decodificarImagem } from '@/lib/imagem/decodificar';
 import {
   emMilimetros,
@@ -39,6 +39,10 @@ const PROPORCOES = [
   { valor: 'livre', rotulo: 'Livre' },
   { valor: '10x15', rotulo: '10×15 em pé' },
   { valor: '15x10', rotulo: '10×15 deitado' },
+  { valor: '13x18', rotulo: '13×18 em pé' },
+  { valor: '18x13', rotulo: '13×18 deitado' },
+  { valor: '15x20', rotulo: '15×20 em pé' },
+  { valor: '20x15', rotulo: '15×20 deitado' },
   { valor: '3x4', rotulo: '3:4' },
   { valor: '4x3', rotulo: '4:3' },
   { valor: '1x1', rotulo: '1:1' },
@@ -88,6 +92,8 @@ export function RecorteDaImagem({
   const [erro, setErro] = useState<string | null>(null);
   const [lendo, setLendo] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const centroDoZoom = useRef<{ x: number; y: number } | null>(null);
 
   const tela = useRef<HTMLCanvasElement | null>(null);
   const area = useRef<HTMLDivElement | null>(null);
@@ -125,6 +131,10 @@ export function RecorteDaImagem({
     let cancelado = false;
     setErro(null);
     setLendo(true);
+    setZoom(100);
+    centroDoZoom.current = null;
+    arrasto.current = null;
+    espacoRef.current?.scrollTo(0, 0);
 
     (async () => {
       try {
@@ -189,7 +199,7 @@ export function RecorteDaImagem({
     if (!alvo) return;
     const medirEspaco = () =>
       setEspaco((atual) => {
-        const largura = alvo.clientWidth;
+        const largura = alvo.getBoundingClientRect().width - 32;
         const altura = Math.max(240, window.innerHeight * 0.62);
         return atual.largura === largura && atual.altura === altura ? atual : { largura, altura };
       });
@@ -214,50 +224,73 @@ export function RecorteDaImagem({
     if (!medida || espaco.largura === 0) return null;
     // Até o dobro para imagem pequena: menos que isso vira selo de correio na
     // tela, e marcar um pedaço de um selo não dá.
-    const fator = Math.min(espaco.largura / medida.largura, espaco.altura / medida.altura, 2);
+    const fator = Math.min(Math.max(1, espaco.largura) / medida.largura, (espaco.altura - 32) / medida.altura, 2) * zoom / 100;
     return { largura: medida.largura * fator, altura: medida.altura * fator };
-  }, [medida, espaco]);
+  }, [medida, espaco, zoom]);
+
+  const mudarZoom = (valor: number) => {
+    const viewport = espacoRef.current;
+    const imagem = area.current?.getBoundingClientRect();
+    if (viewport && imagem && imagem.width && imagem.height) {
+      const janela = viewport.getBoundingClientRect();
+      centroDoZoom.current = {
+        x: (janela.left + viewport.clientWidth / 2 - imagem.left) / imagem.width,
+        y: (janela.top + viewport.clientHeight / 2 - imagem.top) / imagem.height,
+      };
+    }
+    arrasto.current = null;
+    setZoom(Math.max(25, Math.min(800, valor)));
+  };
+
+  useLayoutEffect(() => {
+    const centro = centroDoZoom.current;
+    const viewport = espacoRef.current;
+    const imagem = area.current?.getBoundingClientRect();
+    if (!centro || !viewport || !imagem) return;
+    const janela = viewport.getBoundingClientRect();
+    viewport.scrollLeft += imagem.left - janela.left + centro.x * imagem.width - viewport.clientWidth / 2;
+    viewport.scrollTop += imagem.top - janela.top + centro.y * imagem.height - viewport.clientHeight / 2;
+    centroDoZoom.current = null;
+  }, [zoom]);
 
   /** De pixel de tela para pixel da imagem: é a régua entre os dois mundos. */
-  const escala = useCallback(() => {
+  const pontoNaImagem = useCallback((evento: React.PointerEvent) => {
     const caixa = area.current?.getBoundingClientRect();
-    if (!caixa || !medida || caixa.width === 0) return 1;
-    return medida.largura / caixa.width;
+    if (!caixa || !medida || caixa.width === 0) return { x: 0, y: 0 };
+    const razao = medida.largura / caixa.width;
+    return { x: (evento.clientX - caixa.left) * razao, y: (evento.clientY - caixa.top) * razao };
   }, [medida]);
 
   const comecar = useCallback(
     (evento: React.PointerEvent, tipo: Arrasto['tipo'], alca: Alca) => {
-      if (!medida || !recorte) return;
+      if (!medida || !recorte || lendo || evento.button !== 0) return;
       evento.preventDefault();
       evento.stopPropagation();
       (evento.currentTarget as HTMLElement).setPointerCapture(evento.pointerId);
-      const razao = escala();
       arrasto.current = {
         tipo,
         alca,
-        de: { x: evento.clientX * razao, y: evento.clientY * razao },
+        de: pontoNaImagem(evento),
         base: recorte,
       };
     },
-    [medida, recorte, escala],
+    [medida, recorte, pontoNaImagem, lendo],
   );
 
   /** Clicar no vazio começa uma marcação nova, já puxando o canto. */
   const comecarDoZero = useCallback(
     (evento: React.PointerEvent) => {
-      if (!medida) return;
+      if (!medida || lendo || evento.button !== 0) return;
       const caixa = area.current?.getBoundingClientRect();
       if (!caixa) return;
       evento.preventDefault();
       (evento.currentTarget as HTMLElement).setPointerCapture(evento.pointerId);
-      const razao = escala();
-      const x = (evento.clientX - caixa.left) * razao;
-      const y = (evento.clientY - caixa.top) * razao;
+      const { x, y } = pontoNaImagem(evento);
       const base = limitar({ x, y, largura: 1, altura: 1 }, medida, travada);
-      arrasto.current = { tipo: 'alca', alca: 'se', de: { x: evento.clientX * razao, y: evento.clientY * razao }, base };
+      arrasto.current = { tipo: 'alca', alca: 'se', de: { x, y }, base };
       guardar(base);
     },
-    [medida, escala, travada, guardar],
+    [medida, pontoNaImagem, travada, guardar, lendo],
   );
 
   const arrastar = useCallback(
@@ -267,16 +300,16 @@ export function RecorteDaImagem({
       evento.stopPropagation();
       const atual = arrasto.current;
       if (!atual || !medida) return;
-      const razao = escala();
-      const dx = evento.clientX * razao - atual.de.x;
-      const dy = evento.clientY * razao - atual.de.y;
+      const ponto = pontoNaImagem(evento);
+      const dx = ponto.x - atual.de.x;
+      const dy = ponto.y - atual.de.y;
       guardar(
         atual.tipo === 'mover'
           ? mover(atual.base, dx, dy, medida)
           : redimensionar(atual.base, atual.alca, dx, dy, medida, travada),
       );
     },
-    [medida, escala, travada, guardar],
+    [medida, pontoNaImagem, travada, guardar],
   );
 
   const soltar = useCallback(() => {
@@ -359,11 +392,25 @@ export function RecorteDaImagem({
       </div>
 
       {/* A imagem, com a marcação por cima. */}
+      <fieldset disabled={lendo || !medida} className="flex flex-wrap items-center gap-2">
+        <legend className="sr-only">Zoom da visualização do recorte</legend>
+        <button type="button" aria-label="Diminuir zoom" disabled={zoom <= 25} onClick={() => mudarZoom(zoom - 25)} className="btn-ghost p-2">
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <input aria-label="Zoom do recorte" type="range" min={25} max={800} step={25} value={zoom} onChange={(e) => mudarZoom(Number(e.target.value))} style={{ width: 160, maxWidth: '40%' }} />
+        <button type="button" aria-label="Aumentar zoom" disabled={zoom >= 800} onClick={() => mudarZoom(zoom + 25)} className="btn-ghost p-2">
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <output className="w-12 text-xs tabular-nums">{zoom}%</output>
+        <button type="button" onClick={() => mudarZoom(100)} className="btn-ghost px-3 py-2 text-xs">Ajustar à tela</button>
+        <span className="text-xs text-muted">Use as barras de rolagem para explorar a imagem ampliada.</span>
+      </fieldset>
       <div className="rounded-xl border border-line bg-elevated p-2 shadow-inner">
-        <div ref={espacoRef} className="flex justify-center">
+        <div ref={espacoRef} className="overflow-auto overscroll-contain" style={{ height: espaco.altura || 240 }} tabIndex={0} aria-label="Área de recorte com rolagem">
+        <div className="flex items-center justify-center p-3" style={{ width: naTela ? Math.max(espaco.largura + 16, naTela.largura + 24) : '100%', minHeight: '100%', height: naTela ? naTela.altura + 24 : 240 }}>
         <div
           ref={area}
-          className="relative select-none touch-none"
+          className="relative shrink-0 select-none touch-none"
           style={naTela ? { width: naTela.largura, height: naTela.altura } : { height: 240 }}
           onPointerDown={comecarDoZero}
           onPointerMove={arrastar}
@@ -424,6 +471,7 @@ export function RecorteDaImagem({
               <Loader2 className="h-4 w-4 animate-spin" /> Abrindo a imagem...
             </div>
           )}
+        </div>
         </div>
         </div>
       </div>

@@ -8,7 +8,7 @@
  * uma ferramenta nova mexe em `operacoes/`, e neste arquivo só numa linha.
  */
 
-import { blackTones, compress, grayscale, inkCoverage, invertColors, repair, rgbToCmyk, separatePlates } from './operacoes/otimizar';
+import { blackTones, compress, grayscale, inkCoverage, invertColors, repair, rgbToCmyk } from './operacoes/otimizar';
 import {
   applyPlan,
   blankPages,
@@ -16,7 +16,6 @@ import {
   interleave,
   merge,
   nUp,
-  oddEven,
   reverse,
   split,
   splitPages,
@@ -36,7 +35,7 @@ import { crop, edit, flatten, headerFooter, pageNumbers, resize, watermark } fro
 import { protect, setMetadata, stripMetadata, unlock } from './operacoes/seguranca';
 import { cropMarks, mirror, repeatPages, sequentialNumbering } from './operacoes/grafica';
 import { businessCards, labels } from './operacoes/etiquetas';
-import { preflight } from './operacoes/verificar';
+import { informacoesPdf, preflight } from './operacoes/verificar';
 import { boletoParaImpressao, readBoleto } from './operacoes/boleto';
 import { compressImage, convertImage, cropImage, enhanceImage, heicToImage, resizeImage } from './operacoes/imagem';
 import {
@@ -113,7 +112,6 @@ export const OPERATIONS = {
   'set-metadata': setMetadata,
   'split-pages': splitPages,
   booklet,
-  'odd-even': oddEven,
   'blank-pages': blankPages,
   'excel-to-pdf': excelToPdf,
   'powerpoint-to-pdf': powerpointToPdf,
@@ -124,8 +122,8 @@ export const OPERATIONS = {
   mirror,
   'repeat-pages': repeatPages,
   preflight,
+  'pdf-information': informacoesPdf,
   'photo-sheet': photoSheet,
-  'separate-plates': separatePlates,
   'ink-coverage': inkCoverage,
   'convert-image': convertImage,
   'resize-image': resizeImage,

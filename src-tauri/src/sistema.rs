@@ -15,8 +15,14 @@ const SEM_JANELA: u32 = 0x0800_0000;
 
 const RAIZ: &str = r"HKCU\Software\Classes\SystemFileAssociations";
 const CHAVE_DE_INICIO: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(not(feature = "opus"))]
 const NOME_NO_INICIO: &str = "PDF.GreenCodes";
+#[cfg(feature = "opus")]
+const NOME_NO_INICIO: &str = "OPUS";
+#[cfg(not(feature = "opus"))]
 const PREFERENCIAS: &str = r"HKCU\Software\PDF.GreenCodes";
+#[cfg(feature = "opus")]
+const PREFERENCIAS: &str = r"HKCU\Software\OPUS";
 
 struct Acao {
     extensao: &'static str,
@@ -34,7 +40,8 @@ const ACOES: &[Acao] = &[
 ];
 
 fn caminho_da_chave(acao: &Acao) -> String {
-    format!(r"{RAIZ}\{}\shell\{}", acao.extensao, acao.chave)
+    let chave = if cfg!(feature = "opus") { acao.chave.replace("GreenPdf", "OpusPdf") } else { acao.chave.into() };
+    format!(r"{RAIZ}\{}\shell\{chave}", acao.extensao)
 }
 
 fn reg(argumentos: &[&str]) -> bool {
@@ -76,9 +83,6 @@ pub fn atualizar_caminhos() {
         return;
     }
     let exe = executavel().to_string_lossy().to_lowercase();
-    if !cfg!(debug_assertions) && !reg(&["query", PREFERENCIAS, "/v", "InicioConfigurado"]) {
-        definir_inicio(true);
-    }
 
     let comando_do_menu = format!(r"{}\command", caminho_da_chave(&ACOES[0]));
     if menu_ativo() && !consultar(&["query", &comando_do_menu, "/ve"]).contains(&exe) {
@@ -115,7 +119,8 @@ fn ativar_menu() -> bool {
 
     for acao in ACOES {
         let chave = caminho_da_chave(acao);
-        reg(&["add", &chave, "/ve", "/d", acao.rotulo, "/f"]);
+        let rotulo = if cfg!(feature = "opus") { acao.rotulo.replace("PDF.GreenCodes", "OPUS") } else { acao.rotulo.into() };
+        reg(&["add", &chave, "/ve", "/d", &rotulo, "/f"]);
         reg(&["add", &chave, "/v", "Icon", "/d", &icone, "/f"]);
 
         // MultiSelectModel=Player entrega todos os selecionados numa chamada
@@ -162,6 +167,8 @@ pub fn definir_inicio(ligado: bool) -> bool {
         // o computador.
         let valor = format!("\"{}\" --oculto", exe.to_string_lossy());
         reg(&["add", CHAVE_DE_INICIO, "/v", NOME_NO_INICIO, "/d", &valor, "/f"])
+    } else if !inicio_ativo() {
+        true
     } else {
         reg(&["delete", CHAVE_DE_INICIO, "/v", NOME_NO_INICIO, "/f"])
     };

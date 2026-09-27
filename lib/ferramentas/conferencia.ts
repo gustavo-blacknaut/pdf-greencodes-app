@@ -2,6 +2,26 @@ import { PDF_ACCEPT, type Tool } from './tipos';
 
 export const CONFERENCIA: Tool[] = [
   {
+    slug: 'informacoes-pdf', operation: 'pdf-information', name: 'Informações do PDF',
+    tagline: 'Medidas, imagens, fontes e cobertura de tinta',
+    description: 'Gera três arquivos: a conferência de imagens e fontes, uma planilha com as medidas das páginas e o relatório de cobertura de tinta. Analisa os arquivos sem alterar os PDFs originais.',
+    icon: 'FileSearch', accent: '2 132 199', category: 'Gráfica', accept: PDF_ACCEPT,
+    acceptLabel: 'PDF', multiple: true, orderable: true, soNoAplicativo: true,
+    cta: 'Gerar os três relatórios',
+    busca: ['preflight', 'conferir arquivo', 'relatorio paginas', 'medidas', 'tamanho de papel', 'csv', 'tac', 'cobertura de tinta', 'fontes', 'resolucao'],
+    fields: [
+      { key: 'papel', type: 'select', label: 'Papel para conferir a tinta', default: 'digital', options: [
+        { value: 'digital', label: 'Digital / toner — limite de 400%' },
+        { value: 'offset', label: 'Offset — limite de 300%' },
+        { value: 'couche', label: 'Couché — limite de 330%' },
+        { value: 'jornal', label: 'Jornal — limite de 240%' },
+        { value: 'personalizado', label: 'Outro limite' },
+      ] },
+      { key: 'limite', type: 'number', label: 'Limite de tinta (%)', default: 300,
+        min: 100, max: 400, showIf: { key: 'papel', equals: 'personalizado' } },
+    ],
+  },
+  {
     slug: 'padronizar-orientacao', operation: 'normalize-orientation', name: 'Padronizar orientação',
     tagline: 'Coloque as páginas em retrato ou paisagem',
     description: 'Gira somente as páginas que precisam mudar de orientação. Mantém texto, imagens e tamanho original, sem rasterizar. Não reconhece se o texto está de cabeça para baixo.',
@@ -15,14 +35,6 @@ export const CONFERENCIA: Tool[] = [
         { value: 'horario', label: 'Horário' }, { value: 'anti-horario', label: 'Anti-horário' },
       ] },
     ],
-  },
-  {
-    slug: 'relatorio-paginas', operation: 'page-report', name: 'Relatório das páginas',
-    tagline: 'Confira as medidas antes de imprimir',
-    description: 'Gera um CSV com arquivo, número da página, largura e altura visíveis em milímetros, orientação e rotação. Útil para conferir trabalhos que misturam formatos. O relatório contém os nomes dos arquivos e não é protegido por senha.',
-    icon: 'Layers', accent: '234 88 12', category: 'Gráfica', accept: PDF_ACCEPT,
-    acceptLabel: 'PDF', multiple: true, orderable: true, cta: 'Gerar relatório', fields: [],
-    busca: ['medidas', 'inventario', 'csv', 'tamanho de papel'],
   },
   {
     slug: 'calibrar-impressao', operation: 'print-calibration', name: 'Calibrar impressão',

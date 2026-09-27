@@ -1,9 +1,35 @@
-# PDF.GreenCodes
+# OPUS 5.0 e PDF.GreenCodes
 
-79 ferramentas de PDF e de gráfica que rodam inteiras na sua máquina. Sem upload, sem servidor,
-sem conta. As 20 do dia a dia estão no site, [pdf.greencodes.com.br](https://pdf.greencodes.com.br);
-todas as 79 estão no aplicativo para Windows, que é grátis:
-[baixar](https://github.com/gustavo-blacknaut/pdf-greencodes-app/releases/latest/download/PDF.GreenCodes-Setup.exe).
+Um código, duas edições para Windows. A **OPUS 5.0**, preparada para a Opus Gráfica, mostra as ferramentas do fluxo de trabalho da loja. A edição **PDF.GreenCodes completa** mantém também as ferramentas menos usadas, no final da lista. Ambas processam os arquivos localmente.
+
+Os instaladores são publicados nas [versões do projeto](https://github.com/gustavo-blacknaut/pdf-greencodes-app/releases/latest). O site continua disponível em [pdf.greencodes.com.br](https://pdf.greencodes.com.br).
+
+## Edição OPUS 5.0
+
+- Paint foi retirado. Separar chapas e Separar pares e ímpares foram excluídos das duas edições.
+- A edição OPUS omite sangria, marcas de corte, calibração, carimbo de logo, cartões, rotação isolada, páginas em branco isoladas, marcas de dobra, cabeçalho/rodapé, assinatura, marca d'água em PDF, separação por tamanho, repetição, juntar frente e verso e dividir páginas. Organizar páginas continua com rotação, duplicação e inserção de páginas em branco. Intercalar PDF continua disponível. Dividir páginas recortava a folha sem ampliar o texto.
+- Informações do PDF reúne conferência de imagens/fontes, medidas das páginas e cobertura de tinta, gerando três relatórios.
+- Recorte com zoom de 25% a 800% e proporções 10×15, 13×18 e 15×20, em pé ou deitado. O zoom não modifica os pixels do arquivo.
+- Folha de fotos preserva a proporção e o conteúdo original por padrão. Compactação é opcional.
+- Conversor de fotos inclui HEIC/HEIF e os formatos decodificáveis pelo navegador, com saída PNG, JPG ou WEBP. PNG preserva os pixels; JPG envolve compressão com perda. Upscaling de imagem usa reamostragem Lanczos.
+- Remover fundo preserva resolução e transparência; Limpar digitalização preserva cores no modo padrão.
+- A fila de impressão pede a senha quando recebe um PDF protegido. A senha não é guardada nas preferências.
+- Os resultados PDF têm prévia paginada com zoom; imagens e relatórios também podem ser conferidos na tela. Resultados Word também oferecem prévia convertida para PDF, com aviso de possíveis diferenças de diagramação. Arquivos grandes só carregam a prévia mediante solicitação.
+- Iniciar com Windows fica no menu do ícone da bandeja, ao lado do relógio. A escolha é opcional, com configurações independentes para cada edição.
+
+### Compilar e verificar
+
+```bash
+npm ci
+npm run verificar          # tamanho, TypeScript, Vitest e Rust
+npm run motor              # testes do motor Python
+npm run app:build:opus     # OPUS_5.0.0_x64-setup.exe
+npm run app:build          # PDF.GreenCodes_5.0.0_x64-setup.exe
+```
+
+Os instaladores ficam em `src-tauri/target/release/bundle/nsis/`. O build OPUS seleciona `NEXT_PUBLIC_APP_EDITION=opus`, a configuração `tauri.opus.json` e a feature Rust `opus`. Não execute builds das duas edições simultaneamente: eles compartilham a pasta de exportação. As configurações, atalhos e inicialização automática no Windows são separados.
+
+A versão completa é o padrão de `npm run dev`. Para desenvolver a OPUS no PowerShell, defina `$env:NEXT_PUBLIC_APP_EDITION='opus'` antes de iniciar o servidor.
 
 O aplicativo foi feito para gráfica: converte RGB para CMYK sem rasterizar, imprime em 600 e
 1200 DPI, chega no tipo de papel do driver da impressora, e o preto puro sai **C20 M20 Y0 K100** em
@@ -23,13 +49,13 @@ O mesmo código gera os dois. O que muda é quanto cada um entrega:
 
 | | Site | Aplicativo para Windows |
 |---|---|---|
-| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as 79 |
+| Ferramentas | 20, as do dia a dia (como o iLovePDF) | todas as ferramentas da edição completa |
 | Tamanho | até **200 MB** por vez, sem limite de páginas | até **2 GB** por arquivo, direto do disco |
 | Motor de PDF | o do navegador (pdf.js, pdf-lib) | PyMuPDF, até 16 vezes mais rápido |
 | Resultado | você baixa | aparece sozinho em Downloads |
 | Impressão | — | escala, posição, espelho, marcas, papel do driver |
 
-As outras 55 ferramentas **aparecem no site** com o selo *App*: cada uma tem página, descrição e o
+As ferramentas exclusivas do aplicativo **aparecem no site** com o selo *App*: cada uma tem página, descrição e o
 botão de baixar, em vez de sumir. Arquivo acima de 200 MB é recusado com o mesmo botão junto, e o
 resultado de cada ferramenta mostra quanto mais rápido o aplicativo faria — só onde isso foi medido.
 
@@ -76,7 +102,6 @@ coisa que importa aqui — **o documento não sai da máquina em nenhum dos dois
 | Inverter páginas | Cabeçalho e rodapé | Texto para PDF | | |
 | Intercalar PDF | Achatar PDF | OCR: PDF pesquisável | | |
 | Livreto | | Extrair imagens | | |
-| Separar pares e ímpares | | | | |
 | Páginas em branco | | | | |
 
 E a categoria **Gráfica**, que é o serviço entre a arte pronta e a máquina:
@@ -89,10 +114,8 @@ E a categoria **Gráfica**, que é o serviço entre a arte pronta e a máquina:
 | **Numeração sequencial** | talão, ingresso, rifa e senha |
 | **Espelhar PDF** | sublimação, transfer e serigrafia |
 | **Repetir páginas** | a tiragem toda num arquivo só |
-| **Conferir antes de imprimir** | acha a foto borrada e a fonte que falta |
+| **Informações do PDF** | acha a foto borrada e a fonte que falta |
 | **Folha de fotos** | 3x4, passaporte, 5x7, polaroid, adesivo, revelação |
-| **Separar chapas** | cada cor sozinha, como vai para a chapa |
-| **Cobertura de tinta** | antes de o papel encharcar |
 | **Cartaz em partes** | um A4 virando quatro, para colar depois |
 | **Adicionar sangria** | estica a arte para além do corte |
 | **Marcas de dobra** | onde a dobradeira vai pegar |
@@ -114,8 +137,8 @@ E a categoria **Imagem**, que roda inteira no navegador — inclusive no site:
 | **Converter imagem** | WEBP, AVIF, GIF e BMP para JPG, PNG ou WEBP, em lote |
 | **Redimensionar imagem** | por medida, por porcentagem, ou em milímetros no DPI da impressão |
 | **Comprimir imagem** | você diz o peso, ela acha a melhor qualidade que cabe |
-| **HEIC para JPG** | a foto que o iPhone grava desde 2017 e quase nada abre |
-| **Ampliar e melhorar** | reamostragem Lanczos, e não o esticador do Paint |
+| **Conversor de fotos com HEIC** | a foto que o iPhone grava desde 2017 e quase nada abre |
+| **Upscaling de imagem** | ampliação com reamostragem Lanczos |
 | **Cortar imagem** | você marca a área com o mouse; sai idêntico, sem recomprimir |
 | **Ajustar imagem** | brilho, contraste, saturação, temperatura, nitidez |
 | **Girar e espelhar** | em lote, sem abrir uma por uma |
@@ -132,7 +155,7 @@ O decodificador de HEIC são 2,9 MB e só é baixado quando alguém manda um HEI
 
 Ampliar usa **reamostragem Lanczos**, e não o esticador do canvas: o núcleo tem lóbulos negativos,
 e é isso que devolve borda definida em vez de borrão. Cortar não perde nada — a perda que aparece
-no Paint vem de gravar de novo em JPEG, e por isso o padrão aqui sai em PNG.
+ao gravar novamente em JPEG vem da recompressão, e por isso o padrão aqui sai em PNG.
 
 E a categoria **Boleto**, que é aritmética pura — nada consulta banco nem internet:
 
@@ -146,8 +169,8 @@ emitiu e o que foi comprado **não estão lá**, e nenhuma ferramenta tira isso 
 dígitos. A impressão monta a folha a partir de um código que o banco já emitiu; ela não cria
 boleto, porque um boleto pagável depende de convênio bancário e registro na CIP.
 
-Mais **Imprimir**, que tem tela própria. Quatro ferramentas só existem no aplicativo — *RGB para
-CMYK*, *Folha de fotos*, *Separar chapas* e *Cobertura de tinta* —, porque dependem do motor
+Mais **Imprimir**, que tem tela própria. Algumas ferramentas só existem no aplicativo — *RGB para
+CMYK*, *Folha de fotos* e *Informações do PDF* —, porque dependem do motor
 Python para ler a página em quatro canais. **No site elas nem aparecem na lista**: o site é 100%
 JavaScript e roda inteiro no navegador, e mostrar uma tela que não entrega o que promete seria pior
 que não ter a ferramenta.
@@ -573,13 +596,13 @@ A calibração física depende da impressora: imprima a referência em tamanho r
 
 A primeira coluna permanece na posição medida da folha. Para compensar o desvio progressivo da impressora testada, as colunas 2, 3 e 4 recebem correções de −0,7 mm, −1,3 mm e −2 mm. A grade também sobe 1 mm. Mesmo com os ajustes, todas as extremidades ficam além da área segura de 5 mm. No Adobe, imprima em **Tamanho real**, sem qualquer ajuste de escala.
 
-### Impressão na versão 4.10.0
+### Melhorias da impressão
 
 - A fila de impressão prepara fotos sem reduzir seus pixels nem recomprimir em JPEG. Sessões novas começam coloridas; preto e branco continua disponível quando escolhido.
 - Tamanhos e identificadores de papel vêm da impressora selecionada, incluindo formatos fotográficos de reveladoras. As configurações privadas de mídia e qualidade do driver são preservadas.
 - Envio contínuo prepara o próximo lote enquanto o anterior é enviado. O padrão usa quatro páginas; frente e verso mantém pares e trabalhos divididos recebem “parte N de total” no nome. Cópias múltiplas, saída virtual e diálogo do driver usam envio integral para preservar o conjunto.
 - Botão para juntar a fila antes de imprimir, mantendo texto e vetores. Ajustes individuais devem ser restaurados antes da união.
 - Desenho direto na folha para páginas sem filtros, sem manter duas imagens grandes ao mesmo tempo; recursos nativos de impressão são liberados ao concluir. Consultas de drivers têm prazo de 20 segundos e só a impressora selecionada tem seus recursos consultados.
-- Início com o Windows registrado na primeira abertura da versão instalada, com opção visível para desligar e preservação dessa escolha nas próximas aberturas.
+- Início com o Windows configurado pelo menu da bandeja, preservando a escolha nas próximas aberturas.
 
 A orientação automática acompanha o formato de cada página. A velocidade final depende também do driver, da fila do Windows e da rede; o aplicativo não aumenta a capacidade física de um hub de 100 Mb/s. Cor, mídia e alinhamento devem ser conferidos na impressora real antes de uma tiragem.

@@ -363,41 +363,6 @@ def intercalar(pedido: Pedido) -> Dict[str, Any]:
         segundo.close()
 
 
-def separar_pares_impares(pedido: Pedido) -> Dict[str, Any]:
-    """Dois arquivos: um só com as páginas ímpares, outro só com as pares."""
-    if not pedido.arquivos:
-        raise ErroDoUsuario("nenhum arquivo escolhido")
-
-    origem = pedido.arquivos[0]
-    senha = pedido.senha(0)
-    entrada = abrir(origem, senha)
-    try:
-        total = entrada.page_count
-        gerados = []
-
-        for sufixo, indices in (("impares", range(0, total, 2)), ("pares", range(1, total, 2))):
-            saida = pymupdf.open()
-            for indice in indices:
-                saida.insert_pdf(entrada, from_page=indice, to_page=indice)
-
-            if saida.page_count == 0:
-                saida.close()
-                continue
-
-            destino = nome_com_sufixo(origem, sufixo)
-            if pedido.saida:
-                destino = os.path.join(pedido.saida, os.path.basename(destino))
-            bytes_saida = salvar(saida, destino, senha)
-            paginas = saida.page_count
-            saida.close()
-            gerados.append({"arquivo": destino, "paginas": paginas, "bytes": bytes_saida})
-
-        pedido.andamento(1.0)
-        return {"arquivos": gerados, "paginas": total}
-    finally:
-        entrada.close()
-
-
 def paginas_em_branco(pedido: Pedido) -> Dict[str, Any]:
     """Insere página em branco depois de cada página pedida — ou uma no fim, se nenhuma for pedida.
 

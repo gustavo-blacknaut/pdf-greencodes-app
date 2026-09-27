@@ -1,9 +1,4 @@
-"""Separacao de chapas e cobertura de tinta.
-
-Os dois so provam alguma coisa se o teste ler o resultado de volta e conferir
-a cor, e nao apenas o tamanho do arquivo. Uma chapa de ciano vazia e uma chapa
-de ciano cheia geram PDFs do mesmo tamanho.
-"""
+"""Medição da cobertura de tinta e dos limites por papel."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ import pymupdf
 import pytest
 
 from motor.operacoes.chapas import LIMITES_DE_TINTA, _resumo_da_cobertura
-from motor.protocolo import ErroDoUsuario
 
 
 @pytest.fixture
@@ -31,75 +25,6 @@ def pdf_de_cores(tmp_path):
         return caminho
 
     return montar
-
-
-def tom_medio(caminho, pagina_numero, retangulo):
-    """A media de cinza de um pedaco da pagina. 0 e preto, 255 e branco."""
-    doc = pymupdf.open(caminho)
-    pixels = doc[pagina_numero].get_pixmap(dpi=72, colorspace=pymupdf.csGRAY, clip=retangulo)
-    amostra = pixels.samples
-    media = sum(amostra) / len(amostra)
-    doc.close()
-    return media
-
-
-class TestSepararChapas:
-    def test_sai_uma_pagina_por_chapa(self, rodar, criar_pdf):
-        resultado = rodar("separar-chapas", [criar_pdf(paginas=2)], {"dpi": 72})
-
-        assert resultado["paginas"] == 8  # 2 paginas x 4 chapas
-        doc = pymupdf.open(resultado["arquivo"])
-        assert doc.page_count == 8
-        doc.close()
-
-    def test_escolher_so_o_preto_sai_uma_chapa(self, rodar, criar_pdf):
-        resultado = rodar("separar-chapas", [criar_pdf(paginas=1)], {"dpi": 72, "chapas": "k"})
-
-        assert resultado["chapas"] == ["preto"]
-        assert resultado["paginas"] == 1
-
-    def test_a_chapa_sai_positiva_e_nao_em_negativo(self, rodar, pdf_de_cores):
-        """Escuro e onde tem tinta.
-
-        As duas escalas correm em sentidos opostos — no CMYK 0 e sem tinta, no
-        cinza 0 e preto — e esquecer a inversao entrega a chapa em negativo,
-        que imprime o exato oposto do desenho.
-        """
-        resultado = rodar("separar-chapas", [pdf_de_cores()], {"dpi": 72})
-
-        quadrante_do_preto = pymupdf.Rect(220, 220, 380, 380)
-        quadrante_do_ciano = pymupdf.Rect(20, 20, 180, 180)
-        chapa_do_preto = 3
-
-        entintado = tom_medio(resultado["arquivo"], chapa_do_preto, quadrante_do_preto)
-        limpo = tom_medio(resultado["arquivo"], chapa_do_preto, quadrante_do_ciano)
-
-        assert entintado < 100, "a area preta deveria sair escura na chapa do preto"
-        assert limpo > 180, "o quadrante do ciano quase nao leva preto: deveria sair claro"
-
-    def test_cada_cor_aparece_na_propria_chapa(self, rodar, pdf_de_cores):
-        """O ciano imprime na chapa dele e quase nada na do amarelo.
-
-        Sem numero absoluto de proposito: um ciano RGB puro nao vira 100% de
-        tinta ciano, vira 51%, porque a conversao passa por colorimetria. O
-        que tem de valer e a diferenca entre as chapas.
-        """
-        resultado = rodar("separar-chapas", [pdf_de_cores()], {"dpi": 72})
-
-        quadrante_do_ciano = pymupdf.Rect(20, 20, 180, 180)
-        na_chapa_do_ciano = tom_medio(resultado["arquivo"], 0, quadrante_do_ciano)
-        na_chapa_do_amarelo = tom_medio(resultado["arquivo"], 2, quadrante_do_ciano)
-
-        assert na_chapa_do_ciano < na_chapa_do_amarelo - 50
-
-    def test_recusa_pedido_sem_nenhuma_chapa(self, rodar, criar_pdf):
-        # "nada" nao tem c, m, y nem k. Um "xyz" passaria pelo y do amarelo.
-        with pytest.raises(ErroDoUsuario, match="ao menos uma chapa"):
-            rodar("separar-chapas", [criar_pdf(paginas=1)], {"chapas": "nada"})
-
-    def test_avisa_o_andamento(self, rodar, criar_pdf):
-        resultado = rodar("separar-chapas", [criar_pdf(paginas=3)], {"dpi": 72})
-        assert len(resultado["_andamento"]) >= 2
 
 
 class TestResumoDaCobertura:

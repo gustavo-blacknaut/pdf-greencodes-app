@@ -1,6 +1,7 @@
 'use client';
 
-import { AlertTriangle, Check, FileText, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, FileText, Loader2, LockKeyhole, X } from 'lucide-react';
+import { DesbloquearArquivo } from '../DesbloquearArquivo';
 import { Dropzone } from '../Dropzone';
 import { cx, formatBytes } from '@/lib/utils';
 import type { ItemFila } from './tipos';
@@ -20,6 +21,7 @@ export function FilaDeArquivos({
   aceita,
   onSelecionar,
   onRemover,
+  onDestravar,
   onAdicionar,
 }: {
   fila: ItemFila[];
@@ -30,6 +32,7 @@ export function FilaDeArquivos({
   aceita: string[];
   onSelecionar: (id: string) => void;
   onRemover: (id: string) => void;
+  onDestravar: (id: string, senha: string) => Promise<void>;
   onAdicionar: (arquivos: File[]) => void;
 }) {
   return (
@@ -51,10 +54,11 @@ export function FilaDeArquivos({
           <li
             key={linha.id}
             className={cx(
-              'flex items-center gap-3 px-4 py-2.5',
+              'px-4 py-2.5',
               linha.id === selecionado && 'bg-elevated/60',
             )}
           >
+            <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => linha.blob && onSelecionar(linha.id)}
@@ -68,6 +72,8 @@ export function FilaDeArquivos({
                   <Check className="h-4 w-4 text-brand" />
                 ) : linha.estado === 'erro' ? (
                   <AlertTriangle className="h-4 w-4 text-rose-500" />
+                ) : linha.estado === 'senha' ? (
+                  <LockKeyhole className="h-4 w-4 text-amber-500" />
                 ) : (
                   <FileText className="h-4 w-4" />
                 )}
@@ -75,7 +81,7 @@ export function FilaDeArquivos({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm">{linha.nomeOriginal}</span>
                 <span className="block truncate text-xs text-muted">
-                  {linha.estado === 'erro'
+                  {linha.estado === 'erro' || linha.estado === 'senha'
                     ? linha.erro
                     : linha.estado === 'convertendo'
                       ? 'Convertendo...'
@@ -95,6 +101,9 @@ export function FilaDeArquivos({
             >
               <X className="h-4 w-4" />
             </button>
+            </div>
+            {linha.estado === 'senha' && <DesbloquearArquivo nomeDoArquivo={linha.nomeOriginal}
+              onDesbloquear={(senha) => onDestravar(linha.id, senha)} />}
           </li>
         ))}
       </ul>

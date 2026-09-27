@@ -117,8 +117,7 @@ def folha_de_contato(imagens: list[tuple[str, str]], destino_png: str, destino_p
 # aplicativo elas vao por ele, e e por ele que estao provadas.
 NO_MOTOR = {
     "folha-de-fotos": "folha-de-fotos",
-    "separar-chapas": "separar-chapas",
-    "cobertura-de-tinta": "cobertura-de-tinta",
+    "informacoes-pdf": "informacoes-pdf",
     "rgb-para-cmyk": "rgb-para-cmyk",
 }
 

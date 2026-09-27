@@ -5,13 +5,14 @@ aparece aqui e o que o aplicativo manda no campo "acao": mudar este mapa e a
 unica coisa necessaria para ligar ou desligar uma ferramenta.
 """
 
-from .chapas import cobertura_de_tinta, separar_chapas
+from .chapas import cobertura_de_tinta
 from .cmyk import rgb_para_cmyk
 from .converter import extrair_imagens, imagem_para_pdf, pdf_para_imagem
 from .cores import inverter_cor, tons_de_cinza, tons_de_preto
 from .desenhar import desenhar
 from .fotos import folha_de_fotos, formatos
 from .informar import informar
+from .informacoes import informacoes_pdf
 from .marcar import cabecalho_rodape, marca_dagua, numerar
 from .metadados import definir_metadados, ler_metadados, limpar_metadados
 from .organizar import (
@@ -23,7 +24,6 @@ from .organizar import (
     juntar,
     paginas_em_branco,
     remover,
-    separar_pares_impares,
 )
 from .otimizar import comprimir, reparar
 from .pagina import cortar, dividir_paginas, livreto, redimensionar, varias_por_folha
@@ -31,8 +31,8 @@ from .seguranca import desbloquear, proteger
 
 ACOES = {
     "informar": informar,
+    "informacoes-pdf": informacoes_pdf,
     "rgb-para-cmyk": rgb_para_cmyk,
-    "separar-chapas": separar_chapas,
     "cobertura-de-tinta": cobertura_de_tinta,
     "formatos": formatos,
     "folha-de-fotos": folha_de_fotos,
@@ -65,7 +65,6 @@ ACOES = {
     "ler-metadados": ler_metadados,
     "inverter-paginas": inverter_paginas,
     "intercalar": intercalar,
-    "separar-pares-impares": separar_pares_impares,
     "paginas-em-branco": paginas_em_branco,
 }
 

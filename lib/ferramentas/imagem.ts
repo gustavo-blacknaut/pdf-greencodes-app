@@ -26,6 +26,10 @@ const ENTRADA = [
   '.avif',
   '.gif',
   '.bmp',
+  'image/heic',
+  'image/heif',
+  '.heic',
+  '.heif',
 ];
 
 const FORMATO_DE_SAIDA: Field = {
@@ -44,37 +48,39 @@ const QUALIDADE: Field = {
   key: 'qualidade',
   type: 'range',
   label: 'Qualidade',
-  default: 90,
+  default: 100,
   min: 30,
   max: 100,
   step: 1,
   unit: '%',
   help: 'Vale para JPG e WEBP. O PNG ignora, porque é sem perda.',
-  showIf: { key: 'formato', equals: 'jpeg' },
+  showIf: { key: 'formato', equals: ['jpeg', 'webp'] },
 };
 
 export const IMAGEM: Tool[] = [
   {
     slug: 'converter-imagem',
     operation: 'convert-image',
-    name: 'Converter imagem',
-    tagline: 'WEBP, PNG, JPG e AVIF, em lote',
+    name: 'Conversor de fotos',
+    tagline: 'HEIC, JPG, PNG, WEBP e outros formatos',
     description:
-      'Troca o formato de várias imagens de uma vez. Abre WEBP, AVIF, GIF e BMP — que muito programa antigo recusa — e devolve em JPG, PNG ou WEBP. Saindo mais de uma, vem tudo num .zip.',
-    icon: 'Repeat',
+      'Converte HEIC e HEIF do iPhone, JPG, PNG, WEBP, AVIF, GIF e BMP para JPG, PNG ou WEBP, mantendo as dimensões originais. PNG preserva os pixels e a transparência. Em arquivos animados é usado o primeiro quadro.',
+    icon: 'FileType2',
     accent: '14 165 233',
     category: 'Imagem',
     busca: [
       'webp para png',
       'trocar formato da foto',
       'heic',
+      'heif',
+      'iphone',
       'avif',
     ],
     accept: ENTRADA,
     acceptLabel: 'imagens',
     multiple: true,
     cta: 'Converter',
-    fields: [FORMATO_DE_SAIDA, QUALIDADE],
+    fields: [{ ...FORMATO_DE_SAIDA, default: 'png' }, QUALIDADE],
   },
   {
     slug: 'redimensionar-imagem',
@@ -219,60 +225,16 @@ export const IMAGEM: Tool[] = [
       },
     ],
   },
-  {
-    slug: 'heic-para-jpg',
-    operation: 'heic-to-image',
-    name: 'HEIC para JPG',
-    tagline: 'A foto que vem do iPhone',
-    description:
-      'O iPhone grava em HEIC desde 2017, e quase nada abre esse formato — nem o navegador, nem a maioria dos programas de impressão. Aqui a foto vira JPG ou PNG no tamanho original, em lote.',
-    icon: 'Smartphone',
-    accent: '236 72 153',
-    category: 'Imagem',
-    busca: [
-      'iphone',
-      'foto do celular nao abre',
-      'heif',
-    ],
-    accept: ['image/heic', 'image/heif', '.heic', '.heif'],
-    acceptLabel: 'HEIC do iPhone',
-    multiple: true,
-    cta: 'Converter',
-    fields: [
-      {
-        key: 'formato',
-        type: 'select',
-        label: 'Salvar como',
-        default: 'jpeg',
-        options: [
-          { value: 'jpeg', label: 'JPG', hint: 'o que todo mundo abre' },
-          { value: 'png', label: 'PNG', hint: 'sem perda; arquivo bem maior' },
-        ],
-      },
-      {
-        key: 'qualidade',
-        type: 'range',
-        label: 'Qualidade',
-        default: 92,
-        min: 30,
-        max: 100,
-        step: 1,
-        unit: '%',
-        showIf: { key: 'formato', equals: 'jpeg' },
-      },
-    ],
-  },
-
   // As duas abaixo mexem nos pixels com o motor Lanczos, e não só no
   // formato do arquivo.
   {
     slug: 'melhorar-imagem',
     operation: 'enhance-image',
-    name: 'Ampliar e melhorar',
-    tagline: 'Lanczos, e não o esticador do Paint',
+    name: 'Upscaling de imagem',
+    tagline: 'Ampliar com controle de nitidez',
     description:
-      'Aumenta a imagem com reamostragem Lanczos e realça a borda. É o mesmo algoritmo que o Photoshop chama de "bicúbica mais nítida" — bem melhor que o esticador comum, que só borra. Não inventa detalhe que não está no arquivo, e a nota no fim diz isso com todas as letras.',
-    icon: 'Sparkles',
+      'Amplia a imagem com reamostragem Lanczos e controle de nitidez. Mantém a proporção e permite salvar em PNG sem recompressão com perda. A ampliação não recupera detalhes ausentes no original.',
+    icon: 'ImageUpscale',
     accent: '168 85 247',
     category: 'Imagem',
     busca: [
@@ -328,7 +290,7 @@ export const IMAGEM: Tool[] = [
     name: 'Cortar imagem',
     tagline: 'Você marca o pedaço que fica',
     description:
-      'Marque a área com o mouse e veja o tamanho que vai sair, em pixels e em milímetros. O corte é cópia de pixel e não perde nada — a perda que aparece no Paint vem de gravar em JPEG de novo, que recomprime a imagem inteira. Por isso o padrão aqui sai em PNG, idêntico ao original.',
+      'Marque a área com o mouse e confira as dimensões do recorte. O padrão PNG conserva os pixels selecionados sem recompressão com perda. Inclui proporções para fotos 10x15, 13x18 e 15x20.',
     icon: 'Crop',
     accent: '234 88 12',
     category: 'Imagem',
@@ -560,9 +522,9 @@ export const IMAGEM: Tool[] = [
     slug: 'limpar-digitalizacao',
     operation: 'clean-scan',
     name: 'Limpar digitalização',
-    tagline: 'Papel branco de verdade, e economia de toner',
+    tagline: 'Fotos coloridas ou documentos com fundo limpo',
     description:
-      'O que sai do scanner quase nunca tem papel branco: tem cinza, puxado para o amarelo se a folha for velha. Aqui o papel vai para o branco e a tinta para o preto, cada canal de cor com o seu próprio ponto — é o que tira o amarelado em vez de deixá-lo só mais claro. Fundo branco de verdade também deixa de gastar toner.',
+      'O modo Foto ajusta a luminosidade preservando a relação entre as cores. O modo Documento clareia o papel e corrige o amarelado. A resolução original é mantida e o padrão PNG evita recompressão com perda.',
     icon: 'ScanLine',
     accent: '2 132 199',
     category: 'Imagem',
@@ -579,15 +541,25 @@ export const IMAGEM: Tool[] = [
     cta: 'Limpar',
     fields: [
       {
+        key: 'modo',
+        type: 'select',
+        label: 'Conteúdo da digitalização',
+        default: 'foto',
+        options: [
+          { value: 'foto', label: 'Foto / documento com fotos', hint: 'preserva as cores e os detalhes claros' },
+          { value: 'documento', label: 'Documento de texto', hint: 'clareia o papel e remove o amarelado' },
+        ],
+      },
+      {
         key: 'forca',
         type: 'range',
         label: 'Força',
-        default: 85,
+        default: 50,
         min: 0,
         max: 100,
         step: 5,
         unit: '%',
-        help: 'No máximo, o papel fica branco puro. Baixe se a digitalização tiver foto, para não estourar o claro dela.',
+        help: 'Comece com uma correção suave e confira a prévia. Aumente para clarear mais o papel no modo Documento.',
       },
       {
         key: 'paraPB',
@@ -596,7 +568,7 @@ export const IMAGEM: Tool[] = [
         default: false,
         help: 'Só duas cores, com o corte escolhido pela própria imagem. É o melhor para fotocópia de documento com texto.',
       },
-      FORMATO_DE_SAIDA,
+      { ...FORMATO_DE_SAIDA, default: 'png' },
       QUALIDADE,
     ],
   },

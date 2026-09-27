@@ -1,20 +1,21 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { NOME_DO_APP } from '@/lib/edicao';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://pdf.greencodes.com.br'),
   title: {
-    default: 'PDF.GreenCodes: ferramentas de PDF sem upload',
-    template: '%s · PDF.GreenCodes',
+    default: `${NOME_DO_APP}: ferramentas de PDF sem upload`,
+    template: `%s · ${NOME_DO_APP}`,
   },
   description:
     'Comprima, junte, divida e converta PDFs direto no navegador. O arquivo nunca é enviado para um servidor e o resultado é apagado da memória assim que você baixa.',
-  applicationName: 'PDF.GreenCodes',
+  applicationName: NOME_DO_APP,
   keywords: ['comprimir pdf', 'juntar pdf', 'dividir pdf', 'pdf para word', 'pdf para jpg', 'pdf sem upload'],
   openGraph: {
-    title: 'PDF.GreenCodes: ferramentas de PDF sem upload',
+    title: `${NOME_DO_APP}: ferramentas de PDF sem upload`,
     description: 'Tudo roda no seu navegador. Baixou, apagou.',
-    siteName: 'PDF.GreenCodes',
+    siteName: NOME_DO_APP,
     type: 'website',
     locale: 'pt_BR',
   },

@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod arquivos;
+mod bandeja;
 mod impressao;
 mod motor;
 mod permitidos;
@@ -18,8 +19,6 @@ use std::sync::Mutex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
@@ -37,7 +36,7 @@ struct Fila(Mutex<Vec<String>>);
 /// O que o programa abre: o que o seletor, o arrastar e o "Abrir com"
 /// aceitam. Tem que andar junto com o `accept` das ferramentas.
 const EXTENSOES_ACEITAS: &[&str] = &[
-    "pdf", "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "heic", "heif", "docx", "xlsx", "pptx",
+    "pdf", "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "heic", "heif", "docx", "xls", "xlsx", "xlsm", "pptx",
     "txt",
 ];
 
@@ -705,43 +704,6 @@ async fn inicio_definir(ligado: bool) -> Result<bool, String> {
     em_segundo_plano(move || sistema::definir_inicio(ligado)).await
 }
 
-/* --------------------------------------------------------------- bandeja */
-
-/// Icone ao lado do relogio, com o basico para nao precisar da janela.
-///
-/// Existe porque o aplicativo pode comecar com o Windows: sem um icone
-/// visivel, um programa que abre escondido nao teria como ser aberto.
-fn montar_bandeja(app: &AppHandle) -> tauri::Result<()> {
-    let abrir = MenuItem::with_id(app, "abrir", "Abrir o PDF.GreenCodes", true, None::<&str>)?;
-    let pasta = MenuItem::with_id(app, "pasta", "Abrir a pasta Downloads", true, None::<&str>)?;
-    let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&abrir, &pasta, &sair])?;
-
-    let mut construtor = TrayIconBuilder::with_id("principal")
-        .tooltip("PDF.GreenCodes")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, evento| match evento.id().as_ref() {
-            "abrir" => mostrar_janela(app),
-            "pasta" => {
-                abrir_pasta_dos_resultados(app.clone());
-            }
-            "sair" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(|bandeja, evento| {
-            if let tauri::tray::TrayIconEvent::DoubleClick { .. } = evento {
-                mostrar_janela(bandeja.app_handle());
-            }
-        });
-
-    if let Some(icone) = app.default_window_icon() {
-        construtor = construtor.icon(icone.clone());
-    }
-    construtor.build(app)?;
-    Ok(())
-}
-
 fn mostrar_janela(app: &AppHandle) {
     if let Some(janela) = app.get_webview_window("principal") {
         let _ = janela.show();
@@ -899,7 +861,7 @@ fn main() {
                 mostrar_janela(&alca);
             }
 
-            montar_bandeja(&alca)?;
+            bandeja::montar(&alca)?;
             resultados::iniciar_varredura(&alca);
             // Fora da linha principal: sao alguns `reg.exe`, e a janela ja
             // pode aparecer enquanto isso.

@@ -280,6 +280,7 @@ export function corDaBorda(imagem: Bitmap): [number, number, number] {
 
   const anotar = (x: number, y: number) => {
     const i = (y * largura + x) * 4;
+    if (dados[i + 3] < 250) return;
     canais[0].push(dados[i]);
     canais[1].push(dados[i + 1]);
     canais[2].push(dados[i + 2]);
@@ -325,8 +326,9 @@ export function removerFundo(
   const { largura, altura, dados } = saida;
   const [fr, fg, fb] = corDaBorda(imagem);
 
-  const parecido = (i: number) =>
-    Math.max(Math.abs(dados[i] - fr), Math.abs(dados[i + 1] - fg), Math.abs(dados[i + 2] - fb)) <= tolerancia;
+  const distancia = (i: number) =>
+    Math.max(Math.abs(dados[i] - fr), Math.abs(dados[i + 1] - fg), Math.abs(dados[i + 2] - fb));
+  const parecido = (i: number) => dados[i + 3] === 0 || distancia(i) <= tolerancia;
 
   const visitado = new Uint8Array(largura * altura);
   // Uma fila em array plano: um array de pares alocaria um objeto por pixel,
@@ -370,45 +372,51 @@ export function removerFundo(
     if (visitado[posicao]) dados[posicao * 4 + 3] = 0;
   }
 
-  if (opcoes.suavizar !== false) suavizarBorda(saida);
+  if (opcoes.suavizar !== false) {
+    for (let posicao = 0; posicao < visitado.length; posicao += 1) {
+      const i = posicao * 4;
+      if (visitado[posicao] || dados[i + 3] !== 255) continue;
+      const x = posicao % largura;
+      const juntoDoFundo = (x > 0 && visitado[posicao - 1]) ||
+        (x < largura - 1 && visitado[posicao + 1]) ||
+        (posicao >= largura && visitado[posicao - largura]) ||
+        (posicao + largura < visitado.length && visitado[posicao + largura]);
+      if (juntoDoFundo) {
+        dados[i + 3] = Math.min(255, Math.round(255 * (distancia(i) - tolerancia) / 32));
+      }
+    }
+  }
 
   return { imagem: saida, apagados };
 }
 
-/**
- * Tira a escadinha da borda recortada.
- *
- * Sem isto o contorno fica com o serrilhado de um recorte de tesoura, que
- * salta aos olhos assim que a imagem é colocada sobre um fundo colorido. A
- * média 3x3 só do canal alfa transforma o degrau em meio tom, sem tocar na
- * cor de nenhum pixel.
- */
-function suavizarBorda(imagem: Bitmap): void {
-  const { largura, altura, dados } = imagem;
-  const original = new Uint8ClampedArray(largura * altura);
-  for (let posicao = 0; posicao < original.length; posicao += 1) original[posicao] = dados[posicao * 4 + 3];
-
-  for (let y = 1; y < altura - 1; y += 1) {
-    for (let x = 1; x < largura - 1; x += 1) {
-      const posicao = y * largura + x;
-      // Pixel cercado por iguais não é borda, e mexer nele só borraria o
-      // interior sólido do desenho.
-      const centro = original[posicao];
-      let soma = 0;
-      let mistura = false;
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          const vizinho = original[posicao + dy * largura + dx];
-          soma += vizinho;
-          if (vizinho !== centro) mistura = true;
-        }
-      }
-      if (mistura) dados[posicao * 4 + 3] = soma / 9;
-    }
-  }
-}
-
 // -------------------------------------------------------- digitalizar ---
+
+export function limparFotoDigitalizada(imagem: Bitmap, forca = 0.5): Bitmap {
+  const saida = copiar(imagem);
+  const dados = saida.dados;
+  const peso = Math.max(0, Math.min(1, forca));
+  const histograma = new Uint32Array(256);
+  for (let i = 0; i < dados.length; i += 4) {
+    if (dados[i + 3]) histograma[Math.round(luminancia(dados[i], dados[i + 1], dados[i + 2]))] += 1;
+  }
+  const preto = percentil(histograma, 0.005);
+  const branco = percentil(histograma, 0.995);
+  if (branco - preto < FAIXA_MINIMA || peso === 0) return saida;
+
+  for (let i = 0; i < dados.length; i += 4) {
+    if (!dados[i + 3]) continue;
+    const luz = luminancia(dados[i], dados[i + 1], dados[i + 2]);
+    if (luz === 0) continue;
+    const corrigido = Math.max(0, Math.min(255, (luz - preto) * 255 / (branco - preto)));
+    const ganho = Math.min(
+      (luz + (corrigido - luz) * peso) / luz,
+      255 / Math.max(dados[i], dados[i + 1], dados[i + 2]),
+    );
+    for (let canal = 0; canal < 3; canal += 1) dados[i + canal] *= ganho;
+  }
+  return saida;
+}
 
 /**
  * Endireita o tom de uma digitalização.

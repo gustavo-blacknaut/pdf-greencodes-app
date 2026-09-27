@@ -356,7 +356,6 @@ describe('repetir páginas', () => {
 describe('as que só existem no aplicativo', () => {
   it.each([
     ['photo-sheet', /aplicativo para Windows/],
-    ['separate-plates', /aplicativo para Windows/],
     ['ink-coverage', /aplicativo para Windows/],
   ] as const)('%s explica por que não roda no site', async (id, mensagem) => {
     await expect(runOperation(id, ctx(await pdfDe(1)))).rejects.toThrow(mensagem);

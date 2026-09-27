@@ -16,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ConviteDoAplicativo } from './ConviteDoAplicativo';
+import { PreviaDoResultado } from './PreviaDoResultado';
 import { vault } from '@/lib/ephemeral';
 import { salvarResultado } from '@/lib/salvar-resultado';
 import { zipFiles, type OperationId, type RunResult } from '@/lib/pdf/engine';
@@ -347,6 +348,8 @@ export function ResultPanel({
           />
         </div>
       )}
+
+      <PreviaDoResultado arquivos={entry.files} />
 
       <ul className="divide-y">
         {entry.files.map((file) => {
