@@ -570,4 +570,16 @@ A calibração física depende da impressora: imprima a referência em tamanho r
 
 ### Ajuste da Pimaco 6093 na versão 4.9.1
 
+
 A primeira coluna permanece na posição medida da folha. Para compensar o desvio progressivo da impressora testada, as colunas 2, 3 e 4 recebem correções de −0,7 mm, −1,3 mm e −2 mm. A grade também sobe 1 mm. Mesmo com os ajustes, todas as extremidades ficam além da área segura de 5 mm. No Adobe, imprima em **Tamanho real**, sem qualquer ajuste de escala.
+
+### Impressão na versão 4.10.0
+
+- A fila de impressão prepara fotos sem reduzir seus pixels nem recomprimir em JPEG. Sessões novas começam coloridas; preto e branco continua disponível quando escolhido.
+- Tamanhos e identificadores de papel vêm da impressora selecionada, incluindo formatos fotográficos de reveladoras. As configurações privadas de mídia e qualidade do driver são preservadas.
+- Envio contínuo prepara o próximo lote enquanto o anterior é enviado. O padrão usa quatro páginas; frente e verso mantém pares e trabalhos divididos recebem “parte N de total” no nome. Cópias múltiplas, saída virtual e diálogo do driver usam envio integral para preservar o conjunto.
+- Botão para juntar a fila antes de imprimir, mantendo texto e vetores. Ajustes individuais devem ser restaurados antes da união.
+- Desenho direto na folha para páginas sem filtros, sem manter duas imagens grandes ao mesmo tempo; recursos nativos de impressão são liberados ao concluir. Consultas de drivers têm prazo de 20 segundos e só a impressora selecionada tem seus recursos consultados.
+- Início com o Windows registrado na primeira abertura da versão instalada, com opção visível para desligar e preservação dessa escolha nas próximas aberturas.
+
+A orientação automática acompanha o formato de cada página. A velocidade final depende também do driver, da fila do Windows e da rede; o aplicativo não aumenta a capacidade física de um hub de 100 Mb/s. Cor, mídia e alinhamento devem ser conferidos na impressora real antes de uma tiragem.

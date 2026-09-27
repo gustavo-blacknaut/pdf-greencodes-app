@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -35,7 +36,13 @@ const SEM_JANELA: u32 = 0x0800_0000;
 /// Numeros, e nao nomes, porque e o que o `DEVMODE` carrega: o nome que o
 /// driver mostra e traduzido e varia de fabricante para fabricante.
 fn codigo_do_papel(nome: &str) -> i32 {
+    if let Some(codigo) = nome.strip_prefix("driver:").and_then(|s| s.split(':').next()).and_then(|s| s.parse::<i32>().ok()) {
+        return codigo;
+    }
     match nome {
+        "10x15" => 10001,
+        "13x18" => 10002,
+        "15x20" => 10003,
         "A3" => 8,
         "A5" => 11,
         "Legal" => 5,
@@ -294,6 +301,8 @@ mod testes {
 
     #[test]
     fn papel_desconhecido_cai_no_a4() {
+        assert_eq!(codigo_do_papel("driver:257:101.600:152.400"), 257);
+        assert_eq!(codigo_do_papel("10x15"), 10001);
         assert_eq!(codigo_do_papel("A4"), 9);
         assert_eq!(codigo_do_papel("A3"), 8);
         assert_eq!(codigo_do_papel("Letter"), 1);
@@ -350,15 +359,36 @@ pub fn chamar(app: &AppHandle, argumentos: &[String]) -> Result<Value, String> {
     #[cfg(windows)]
     comando.creation_flags(SEM_JANELA);
 
-    let filho = comando
+    let mut filho = comando
         .spawn()
         .map_err(|e| format!("nao consegui rodar o auxiliar de impressao: {e}"))?;
     // Preso ao aplicativo: esperando o "Salvar como" de uma impressora
     // virtual, ele sobrevivia ao fechamento e ficava para tras, invisivel.
     crate::processos::prender(&filho);
-    let saida = filho
+    let saida = if argumentos.first().is_some_and(|a| a == "listar" || a == "descrever") {
+        let mut stdout = filho.stdout.take().ok_or("saida do auxiliar indisponivel")?;
+        let mut stderr = filho.stderr.take().ok_or("erros do auxiliar indisponiveis")?;
+        let leitor = std::thread::spawn(move || { let mut bytes = Vec::new(); stdout.read_to_end(&mut bytes).map(|_| bytes) });
+        let erros = std::thread::spawn(move || { let mut bytes = Vec::new(); stderr.read_to_end(&mut bytes).map(|_| bytes) });
+        let inicio = std::time::Instant::now();
+        while filho.try_wait().map_err(|e| e.to_string())?.is_none() {
+            if inicio.elapsed() > std::time::Duration::from_secs(20) {
+                let _ = filho.kill();
+                let _ = filho.wait();
+                let _ = leitor.join();
+                let _ = erros.join();
+                return Err("O driver da impressora não respondeu em 20 segundos. Confira a conexão e tente novamente.".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        std::process::Output {
+            status: filho.wait().map_err(|e| e.to_string())?,
+            stdout: leitor.join().map_err(|_| "falha lendo impressora")?.map_err(|e| e.to_string())?,
+            stderr: erros.join().map_err(|_| "falha lendo erros da impressora")?.map_err(|e| e.to_string())?,
+        }
+    } else { filho
         .wait_with_output()
-        .map_err(|e| format!("o auxiliar de impressao parou no meio: {e}"))?;
+        .map_err(|e| format!("o auxiliar de impressao parou no meio: {e}"))? };
 
     if !saida.status.success() {
         let motivo = String::from_utf8_lossy(&saida.stderr);

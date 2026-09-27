@@ -614,6 +614,11 @@ fn preferencias_da_impressora(impressora: String) -> Value {
 }
 
 #[tauri::command]
+async fn descrever_impressora(app: AppHandle, impressora: String) -> Result<Value, String> {
+    em_segundo_plano(move || impressao::chamar(&app, &["descrever".into(), "--impressora".into(), impressora])).await?
+}
+
+#[tauri::command]
 fn impressao_preparar(sessoes: State<'_, Sessoes>) -> Result<Preparada, String> {
     sessoes.preparar()
 }
@@ -940,6 +945,7 @@ fn main() {
             motor_entregar,
             motor_limpar,
             listar_impressoras,
+            descrever_impressora,
             preferencias_da_impressora,
             impressao_preparar,
             impressao_pagina,

@@ -23,6 +23,7 @@ export const OPCOES_PADRAO: OpcoesImpressao = {
   duplex: 'simplex',
   papel: 'A4',
   dpi: 600,
+  envioContinuo: true,
 };
 
 /** Uma grade picotada não pode herdar a escala ou o deslocamento da última foto. */
@@ -44,6 +45,8 @@ export const ACEITA = [
   ...IMAGE_ACCEPT,
   '.docx',
   '.xlsx',
+  '.xls',
+  '.xlsm',
   '.pptx',
   '.txt',
 ];
@@ -54,7 +57,7 @@ export function conversaoPara(nome: string): OperationId | null {
   if (n.endsWith('.pdf')) return null;
   if (pareceSerImagem(n)) return 'images-to-pdf';
   if (n.endsWith('.docx')) return 'word-to-pdf';
-  if (n.endsWith('.xlsx')) return 'excel-to-pdf';
+  if (/\.(xlsx|xlsm|xls)$/.test(n)) return 'excel-to-pdf';
   if (n.endsWith('.pptx')) return 'powerpoint-to-pdf';
   if (n.endsWith('.txt')) return 'text-to-pdf';
   return null;
@@ -66,7 +69,7 @@ export function lerOpcoesSalvas(): OpcoesImpressao {
     const bruto = localStorage.getItem(CHAVE_DAS_OPCOES);
     const salvas = bruto ? JSON.parse(bruto) : null;
     return salvas && typeof salvas === 'object' && !Array.isArray(salvas)
-      ? { ...OPCOES_PADRAO, ...salvas, dpi: 600 }
+      ? { ...OPCOES_PADRAO, ...salvas, dpi: 600, colorido: true }
       : { ...OPCOES_PADRAO };
   } catch {
     return OPCOES_PADRAO;

@@ -42,12 +42,12 @@ static class Dispositivo
         var lista = new List<string>();
         foreach (string nome in PrinterSettings.InstalledPrinters)
         {
-            lista.Add(Descrever(nome, nome == padrao));
+            lista.Add(Json.Objeto(Json.Campo("nome", Json.Texto(nome)), Json.Campo("padrao", Json.Booleano(nome == padrao))));
         }
         return Json.Objeto(Json.Campo("impressoras", Json.Lista(lista)));
     }
 
-    static string Descrever(string nome, bool padrao)
+    public static string Descrever(string nome, bool padrao)
     {
         var campos = new List<string>
         {
@@ -66,7 +66,7 @@ static class Dispositivo
             int copias = Numero(nome, DC_COPIES);
             campos.Add(Json.Campo("copiasMax", Json.Numero(copias > 0 ? copias : 1)));
 
-            campos.Add(Json.Campo("papeis", Pares(nome, DC_PAPERNAMES, LETRAS_PAPEL, DC_PAPERS)));
+            campos.Add(Json.Campo("papeis", PapeisDoDriver(nome)));
             campos.Add(Json.Campo("bandejas", Pares(nome, DC_BINNAMES, LETRAS_BANDEJA, DC_BINS)));
             campos.Add(Json.Campo("tipos", Pares(nome, DC_MEDIATYPENAMES, LETRAS_TIPO, DC_MEDIATYPES)));
         }
@@ -90,6 +90,23 @@ static class Dispositivo
     /// E o que o navegador usa como margem "padrao": o quanto o mecanismo da
     /// impressora nao consegue pintar perto da borda. A tela usa isto para a
     /// arte nunca cair ali, e para mostrar na previa o que fica de fora.
+    static string PapeisDoDriver(string nome)
+    {
+        var ajustes = new PrinterSettings { PrinterName = nome };
+        var papeis = new List<string>();
+        foreach (PaperSize papel in ajustes.PaperSizes)
+        {
+            if (papel.Width <= 0 || papel.Height <= 0) continue;
+            papeis.Add(Json.Objeto(
+                Json.Campo("id", Json.Numero(papel.RawKind)),
+                Json.Campo("nome", Json.Texto(papel.PaperName)),
+                Json.Campo("largura", Json.Numero(papel.Width)),
+                Json.Campo("altura", Json.Numero(papel.Height)),
+                Json.Campo("padrao", Json.Booleano(papel.RawKind == ajustes.DefaultPageSettings.PaperSize.RawKind))));
+        }
+        return Json.Lista(papeis);
+    }
+
     static string Margens(string nome)
     {
         var ajustes = new PrinterSettings { PrinterName = nome };

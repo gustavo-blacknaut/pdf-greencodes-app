@@ -6,6 +6,7 @@ import { BarChart3, RotateCcw } from 'lucide-react';
 import { versaoDoAplicativo } from '@/lib/desktop';
 import { resetarTudo } from '@/lib/resetar';
 import { PainelDeAtividade } from './PainelDeAtividade';
+import { InicioAutomatico } from './InicioAutomatico';
 
 export function AppBar() {
   const [versao, setVersao] = useState('');
@@ -35,6 +36,7 @@ export function AppBar() {
         {versao && <span className="text-xs tabular-nums text-muted">{versao}</span>}
 
         <div className="ml-auto flex items-center gap-2">
+          <InicioAutomatico />
           <button
             type="button"
             onClick={() => (confirmando ? resetarTudo() : setConfirmando(true))}

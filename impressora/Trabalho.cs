@@ -57,7 +57,8 @@ static class Trabalho
             if (!File.Exists(caminho)) throw new FileNotFoundException("nao achei a pagina " + caminho);
         }
 
-        var documento = new PrintDocument();
+        using (var documento = new PrintDocument())
+        {
         documento.PrinterSettings.PrinterName = pedido.Impressora;
 
         if (!documento.PrinterSettings.IsValid)
@@ -65,7 +66,8 @@ static class Trabalho
             throw new InvalidOperationException("impressora nao encontrada: " + pedido.Impressora);
         }
 
-        Modo.Aplicar(documento.PrinterSettings, pedido.Devmode);
+        Modo.Aplicar(documento.PrinterSettings, documento.DefaultPageSettings,
+            string.IsNullOrEmpty(pedido.Devmode) ? Modo.Atual(pedido.Impressora) : pedido.Devmode);
 
         AplicarPapel(documento, pedido.Papel);
         documento.DefaultPageSettings.Landscape = pedido.Paisagem;
@@ -73,7 +75,6 @@ static class Trabalho
         AplicarDuplex(documento, pedido.Duplex);
         // A melhor qualidade que o driver tem, sempre - a menos que a pessoa
         // tenha escolhido outra na janela dele, que ai manda.
-        if (string.IsNullOrEmpty(pedido.Devmode)) AplicarMelhorResolucao(documento);
 
         if (pedido.Copias > 0)
         {
@@ -145,6 +146,7 @@ static class Trabalho
             Json.Campo("paisagem", Json.Booleano(documento.DefaultPageSettings.Landscape)),
             Json.Campo("trabalho", Json.Texto(documento.DocumentName)),
             Json.Campo("arquivo", Json.Texto(pedido.Arquivo == null ? "" : pedido.Arquivo)));
+        }
     }
 
     /// Troca o tamanho do papel pelo que a tela pediu.
@@ -173,7 +175,7 @@ static class Trabalho
         {
             if (medida.Codigo != papel) continue;
             PaperSize personalizado = new PaperSize(medida.Nome, medida.Largura, medida.Altura);
-            personalizado.RawKind = papel;
+            personalizado.RawKind = papel >= 10000 ? 0 : papel;
             documento.DefaultPageSettings.PaperSize = personalizado;
             return;
         }
@@ -308,6 +310,9 @@ static class Papeis
 {
     public static readonly Medida[] Conhecidos = new Medida[]
     {
+        new Medida(10001, "10x15", 394, 591),
+        new Medida(10002, "13x18", 512, 709),
+        new Medida(10003, "15x20", 591, 787),
         new Medida(8, "A3", 1169, 1654),
         new Medida(9, "A4", 827, 1169),
         new Medida(11, "A5", 583, 827),

@@ -13,7 +13,7 @@
  * aba em máquina fraca.
  */
 
-import { medidaGirada } from '../impressao/ajustes';
+import { ajustesDe, medidaGirada, temAjuste } from '../impressao/ajustes';
 import { cabeNaMemoria, desenharFolha, planoDaFolha, pontosParaMm, type Montagem } from '../impressao/folha';
 import { openWithPdfJs, renderPageToCanvas } from './nucleo';
 
@@ -39,7 +39,7 @@ export type ProgressoImpressao = (feitas: number, total: number) => void;
 export async function prepararParaImpressao(
   blob: Blob,
   montagem: Montagem,
-  enviarFolha: (indice: number, bytes: ArrayBuffer) => Promise<unknown>,
+  enviarFolha: (indice: number, bytes: ArrayBuffer, total: number) => Promise<unknown>,
   onProgresso?: ProgressoImpressao,
 ): Promise<number> {
   const doc = await openWithPdfJs(await blob.arrayBuffer());
@@ -79,10 +79,22 @@ export async function prepararParaImpressao(
       // sempre.
       // A impressão já limita a memória por pixels. O teto de 4200 usado
       // pelas ferramentas reduzia uma A4 de 600 para cerca de 359 DPI.
-      await renderPageToCanvas(atual, dpiDaPagina, pagina, 16384);
+      const direto = !temAjuste(ajustesDe(montagem.ajustes)) && !montagem.ajustes?.girar
+        && montagem.colorido !== false && !montagem.negativo && (!montagem.espelho || montagem.espelho === 'nao')
+        && !montagem.marcasCorte && !montagem.marcasRegistro;
+      if (direto) {
+        folha.width = plano.folha.largura;
+        folha.height = plano.folha.altura;
+        const canvasContext = folha.getContext('2d', { alpha: false });
+        if (!canvasContext) throw new Error('Não foi possível desenhar a folha.');
+        const viewport = atual.getViewport({ scale: plano.arte.largura / medida.width });
+        await atual.render({ canvasContext, viewport, intent: 'print', background: '#ffffff',
+          transform: [1, 0, 0, 1, plano.arte.x, plano.arte.y] }).promise;
+      } else {
+        await renderPageToCanvas(atual, dpiDaPagina, pagina, 16384);
+        desenharFolha(pagina, arte, montagem, folha);
+      }
       atual.cleanup();
-
-      desenharFolha(pagina, arte, montagem, folha);
       // O raster da página já foi copiado para a folha. Libera antes da
       // codificação para não somar as duas telas ao buffer do JPEG.
       pagina.width = 0;
@@ -95,8 +107,9 @@ export async function prepararParaImpressao(
       folha.width = 0;
       folha.height = 0;
 
-      await enviarFolha(i, await jpeg.arrayBuffer());
+      await enviarFolha(i, await jpeg.arrayBuffer(), doc.numPages);
       onProgresso?.(i, doc.numPages);
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     return doc.numPages;
   } finally {

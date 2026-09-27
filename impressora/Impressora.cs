@@ -43,6 +43,10 @@ static class Impressora
                     Console.Out.Write(Configuracao(Modo.Atual(Exigir(opcoes, "impressora"))));
                     return 0;
 
+                case "descrever":
+                    Console.Out.Write(Dispositivo.Descrever(Exigir(opcoes, "impressora"), false));
+                    return 0;
+
                 case "configurar":
                 {
                     // Sem dono, o Windows impede este processo recem-aberto

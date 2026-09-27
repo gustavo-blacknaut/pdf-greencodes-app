@@ -3,6 +3,7 @@
 import { Loader2, Plus, Printer, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { abrirPreferenciasDaImpressora, type Impressora, type OpcoesImpressao } from '@/lib/desktop';
 import { cx } from '@/lib/utils';
+import { papeisDaImpressora } from '@/lib/impressao/papeis';
 
 /**
  * O painel do lado direito: valem para a fila inteira, não por arquivo.
@@ -191,6 +192,14 @@ export function OpcoesDeImpressao({
         </p>
       </div>
 
+      <label className="flex gap-2 text-sm">
+        <input type="checkbox" checked={opcoes.envioContinuo !== false}
+          onChange={(e) => onMudar('envioContinuo', e.target.checked)} />
+        <span>Enviar enquanto prepara as próximas páginas
+          <small className="block text-muted">Lotes automáticos de 4 páginas. Frente e verso mantém os pares. Cópias múltiplas e diálogo do driver usam trabalho único.</small>
+        </span>
+      </label>
+
       <div>
         <label htmlFor="papel" className="field-label">
           Papel
@@ -201,12 +210,9 @@ export function OpcoesDeImpressao({
           value={opcoes.papel}
           onChange={(e) => onMudar('papel', e.target.value as OpcoesImpressao['papel'])}
         >
-          <option value="A4">A4 · 210 × 297 mm</option>
-          <option value="Letter">Carta · 215,9 × 279,4 mm</option>
-          <option value="Legal">Ofício · 216 × 356 mm</option>
-          <option value="A3">A3 · 297 × 420 mm</option>
-          <option value="A5">A5 · 148 × 210 mm</option>
-          <option value="Tabloid">Tabloide · 279 × 432 mm</option>
+          {papeisDaImpressora(impressoras?.find((i) => i.nome === opcoes.impressora)).map((p) => (
+            <option key={p.valor} value={p.valor}>{p.nome}</option>
+          ))}
         </select>
       </div>
 

@@ -40,7 +40,8 @@ export function usePrevia({
     if (tela.height !== cru.height) tela.height = cru.height;
     const pincel = tela.getContext('2d');
     if (!pincel) return;
-    pincel.clearRect(0, 0, tela.width, tela.height);
+    pincel.fillStyle = '#ffffff';
+    pincel.fillRect(0, 0, tela.width, tela.height);
     pincel.drawImage(cru, 0, 0);
     const mm = arteRef.current?.largura;
     if (mm) ajustarCanvas(tela, ajustesRef.current, cru.width / mm);
@@ -121,7 +122,7 @@ export function usePrevia({
         }
         const contexto = cru.getContext('2d');
         if (!contexto) throw new Error('Não foi possível desenhar a prévia.');
-        tarefa = p.render({ canvasContext: contexto, viewport });
+        tarefa = p.render({ canvasContext: contexto, viewport, intent: 'print', background: '#ffffff' });
         tarefaRef.current = tarefa;
         await tarefa.promise;
         if (!vivo) return;

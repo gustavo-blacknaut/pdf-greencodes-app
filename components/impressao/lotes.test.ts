@@ -4,6 +4,11 @@ import { fatiarParaImpressao } from './lotes';
 import { lerOpcoesSalvas } from './fila';
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it('uma nova sessão não herda preto e branco da impressão anterior', () => {
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ colorido: false }) });
+  expect(lerOpcoesSalvas().colorido).toBe(true);
+});
+
 it('impressões antigas não restauram 150 ou 300 DPI como padrão', () => {
   vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ dpi: 150, impressora: 'Teste', papel: 'Letter' }) });
   expect(lerOpcoesSalvas()).toMatchObject({ dpi: 600, impressora: 'Teste', papel: 'Letter' });

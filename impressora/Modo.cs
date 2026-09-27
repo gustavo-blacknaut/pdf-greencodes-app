@@ -105,7 +105,7 @@ static class Modo
     }
 
     /// Aplica um DEVMODE guardado sobre as configuracoes de um trabalho.
-    public static void Aplicar(PrinterSettings ajustes, string base64)
+    public static void Aplicar(PrinterSettings ajustes, PageSettings pagina, string base64)
     {
         if (string.IsNullOrEmpty(base64)) return;
 
@@ -118,6 +118,7 @@ static class Modo
         {
             Marshal.Copy(bytes, 0, area, bytes.Length);
             ajustes.SetHdevmode(area);
+            pagina.SetHdevmode(area);
         }
         finally { Marshal.FreeHGlobal(area); }
     }

@@ -27,11 +27,17 @@ export const PAPEIS: Record<string, Medida> = {
   Legal: { largura: 216, altura: 356 },
   Letter: { largura: 215.9, altura: 279.4 },
   Tabloid: { largura: 279, altura: 432 },
+  '10x15': { largura: 100, altura: 150 },
+  '13x18': { largura: 130, altura: 180 },
+  '15x20': { largura: 150, altura: 200 },
 };
 
 /** A folha escolhida, já deitada se for o caso. */
 export function folhaEmMm(papel: string, deitada: boolean): Medida {
-  const medida = PAPEIS[papel] ?? PAPEIS.A4;
+  const partes = /^driver:\d+:([\d.]+):([\d.]+)$/.exec(papel);
+  const personalizada = partes && { largura: Number(partes[1]), altura: Number(partes[2]) };
+  const medida = personalizada && personalizada.largura > 0 && personalizada.altura > 0
+    ? personalizada : PAPEIS[papel] ?? PAPEIS.A4;
   return deitada ? { largura: medida.altura, altura: medida.largura } : { ...medida };
 }
 

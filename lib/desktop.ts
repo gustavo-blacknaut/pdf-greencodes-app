@@ -37,6 +37,7 @@ async function invoke<T>(comando: string, argumentos?: InvokeArgs, opcoes?: Invo
 import type { Ajustes } from './impressao/ajustes';
 import { DPI_MAXIMO, type Montagem, type Orientacao } from './impressao/folha';
 import type { BordaDaImpressora } from './impressao/layout';
+import { enviarEmFluxo } from './impressao/envio';
 
 export type ArquivoDoSistema = { nome: string; bytes: ArrayBuffer };
 
@@ -48,6 +49,9 @@ export type Impressora = {
   apelido: string;
   descricao: string;
   padrao: boolean;
+  papeis?: { id: number; nome: string; largura: number; altura: number; padrao?: boolean }[];
+  duplex?: boolean;
+  cor?: boolean;
   /** A beirada que o mecanismo não alcança, em milímetros. Ausente se o driver não disse. */
   margens?: BordaDaImpressora;
 };
@@ -86,7 +90,8 @@ export type OpcoesImpressao = {
   orientacao?: Orientacao;
   paisagem?: boolean;
   duplex?: 'simplex' | 'shortEdge' | 'longEdge';
-  papel?: 'A3' | 'A4' | 'A5' | 'Legal' | 'Letter' | 'Tabloid';
+  papel?: string;
+  envioContinuo?: boolean;
   /** Resolução desejada, limitada pela capacidade de montagem da folha. Padrão: 600. */
   dpi?: number;
   /**
@@ -469,7 +474,7 @@ export function motorPython(): MotorPython | null {
 /** Lista as impressoras do sistema. Fora do aplicativo não há o que listar. */
 export async function listarImpressoras(): Promise<Impressora[]> {
   const lista = await pedir<
-    { nome: string; padrao?: boolean; descricao?: string; margens?: BordaDaImpressora }[]
+    (Omit<Impressora, 'apelido' | 'padrao' | 'descricao'> & { padrao?: boolean; descricao?: string })[]
   >('listar_impressoras');
   if (!lista) return [];
   return lista.map((impressora) => ({
@@ -477,8 +482,16 @@ export async function listarImpressoras(): Promise<Impressora[]> {
     apelido: impressora.nome,
     descricao: impressora.descricao ?? '',
     padrao: Boolean(impressora.padrao),
+    papeis: impressora.papeis,
+    duplex: impressora.duplex,
+    cor: impressora.cor,
     margens: emMilimetros(impressora.margens),
   }));
+}
+
+export async function descreverImpressora(nome: string): Promise<Partial<Impressora> | null> {
+  const dados = await pedir<Partial<Impressora>>('descrever_impressora', { impressora: nome });
+  return dados ? { ...dados, margens: emMilimetros(dados.margens) } : null;
 }
 
 /** O driver fala em centésimos de polegada; a folha, em milímetros. */
@@ -551,25 +564,20 @@ export async function imprimirArquivo(
   onProgresso?: (feitas: number, total: number) => void,
 ): Promise<ResultadoSalvar> {
   if (estaNoAplicativo()) {
-    const sessao = await invoke<{ ok: boolean; id?: string; erro?: string }>('impressao_preparar');
-    if (!sessao.ok || !sessao.id) {
-      return { ok: false, erro: sessao.erro ?? 'Não foi possível preparar a impressão.' };
-    }
-
-    const id = sessao.id;
-    try {
-      const { prepararParaImpressao } = await import('./pdf/impressao');
-      await prepararParaImpressao(
-        blob,
-        montagemDe(opcoes),
-        (indice, bytes) =>
-          enviarBytes('impressao_pagina', bytes, { sessao: id, indice: String(indice) }),
-        onProgresso,
-      );
-
-      return await invoke<ResultadoSalvar>('impressao_enviar', {
+    const { prepararParaImpressao } = await import('./pdf/impressao');
+    const continuo = opcoes?.envioContinuo !== false && !opcoes?.usarDialogo && !opcoes?.arquivo
+      && (opcoes?.copias ?? 1) === 1 && !/pdf|xps|onenote/i.test(opcoes?.impressora ?? '');
+    return enviarEmFluxo(nome, continuo ? 4 : 0, {
+      preparar: async () => {
+        const sessao = await invoke<{ ok: boolean; id?: string; erro?: string }>('impressao_preparar');
+        if (!sessao.ok || !sessao.id) throw new Error(sessao.erro ?? 'Não foi possível preparar a impressão.');
+        return sessao.id;
+      },
+      pagina: (id, indice, bytes) => enviarBytes('impressao_pagina', bytes, { sessao: id, indice: String(indice) }),
+      descartar: (id) => invoke('impressao_descartar', { id }),
+      enviar: (id, titulo) => invoke<ResultadoSalvar>('impressao_enviar', {
         id,
-        nome,
+        nome: titulo,
         opcoes: {
           impressora: opcoes?.impressora,
           copias: opcoes?.copias,
@@ -582,11 +590,8 @@ export async function imprimirArquivo(
           arquivo: opcoes?.arquivo,
           usarDialogo: opcoes?.usarDialogo,
         },
-      });
-    } catch (erro) {
-      await invoke('impressao_descartar', { id }).catch(() => {});
-      return { ok: false, erro: erro instanceof Error ? erro.message : String(erro) };
-    }
+      }),
+    }, (entregar) => prepararParaImpressao(blob, montagemDe(opcoes), entregar, onProgresso));
   }
 
   return new Promise((resolve) => {

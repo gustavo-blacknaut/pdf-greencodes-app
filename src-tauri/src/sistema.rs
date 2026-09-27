@@ -16,6 +16,7 @@ const SEM_JANELA: u32 = 0x0800_0000;
 const RAIZ: &str = r"HKCU\Software\Classes\SystemFileAssociations";
 const CHAVE_DE_INICIO: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const NOME_NO_INICIO: &str = "PDF.GreenCodes";
+const PREFERENCIAS: &str = r"HKCU\Software\PDF.GreenCodes";
 
 struct Acao {
     extensao: &'static str,
@@ -75,6 +76,9 @@ pub fn atualizar_caminhos() {
         return;
     }
     let exe = executavel().to_string_lossy().to_lowercase();
+    if !cfg!(debug_assertions) && !reg(&["query", PREFERENCIAS, "/v", "InicioConfigurado"]) {
+        definir_inicio(true);
+    }
 
     let comando_do_menu = format!(r"{}\command", caminho_da_chave(&ACOES[0]));
     if menu_ativo() && !consultar(&["query", &comando_do_menu, "/ve"]).contains(&exe) {
@@ -151,7 +155,7 @@ pub fn definir_inicio(ligado: bool) -> bool {
     if !cfg!(windows) {
         return false;
     }
-    if ligado {
+    let resultado = if ligado {
         let exe = executavel();
         // `--oculto` deixa o aplicativo comecar sem janela: quem liga o inicio
         // automatico quer o programa pronto, e nao uma janela na cara ao ligar
@@ -160,7 +164,15 @@ pub fn definir_inicio(ligado: bool) -> bool {
         reg(&["add", CHAVE_DE_INICIO, "/v", NOME_NO_INICIO, "/d", &valor, "/f"])
     } else {
         reg(&["delete", CHAVE_DE_INICIO, "/v", NOME_NO_INICIO, "/f"])
+    };
+    if resultado {
+        reg(&["add", PREFERENCIAS, "/v", "InicioConfigurado", "/t", "REG_DWORD", "/d", "1", "/f"]);
+        if ligado {
+            reg(&["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+                "/v", NOME_NO_INICIO, "/t", "REG_BINARY", "/d", "020000000000000000000000", "/f"]);
+        }
     }
+    resultado
 }
 
 /// Abre as Preferencias de Impressao do proprio driver.

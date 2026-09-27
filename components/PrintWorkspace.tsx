@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Dropzone } from './Dropzone';
 import { FilaDeArquivos } from './impressao/FilaDeArquivos';
+import { JuntarFila } from './impressao/JuntarFila';
 import {
   ACEITA,
   OPCOES_PADRAO,
@@ -42,6 +43,8 @@ import { prepararSaida } from './impressao/prepararSaida';
 import { fatiarParaImpressao } from './impressao/lotes';
 import { AJUSTES_NEUTROS, ajustesDe, type Ajustes } from '@/lib/impressao/ajustes';
 import { avisoDaFolha } from '@/lib/impressao/folha';
+import { selecionarImpressora } from '@/lib/impressao/papeis';
+import { nomeDaParte } from '@/lib/impressao/envio';
 import { atividade } from '@/lib/atividade';
 import { vault } from '@/lib/ephemeral';
 import { inspectFile, runOperation } from '@/lib/pdf/engine';
@@ -54,6 +57,7 @@ import {
   imprimirArquivo,
   lerArquivoEscolhido,
   listarImpressoras,
+  descreverImpressora,
   materializar,
   montagemDe,
   registrarUso,
@@ -181,15 +185,26 @@ export function PrintWorkspace() {
       setImpressoras(lista);
       setOpcoes((atual) => {
         const existe = lista.some((i) => i.nome === atual.impressora);
-        return { ...atual, impressora: existe ? atual.impressora : (lista.find((i) => i.padrao) ?? lista[0])?.nome };
+        return selecionarImpressora(atual, existe ? lista.find((i) => i.nome === atual.impressora) : lista.find((i) => i.padrao) ?? lista[0]);
       });
-    });
+    }).catch((e) => { setImpressoras([]); setErroGeral(e instanceof Error ? e.message : 'Não foi possível consultar as impressoras.'); });
   }, []);
 
   // A fila é lida por ref porque quem chama pode ser a inscrição no arrastar,
   // montada uma vez só.
   const filaRef = useRef(fila);
   filaRef.current = fila;
+
+  useEffect(() => {
+    if (!opcoes.impressora) return;
+    let vivo = true;
+    void descreverImpressora(opcoes.impressora).then((dados) => {
+      if (!vivo || !dados) return;
+      setImpressoras((lista) => lista?.map((i) => i.nome === dados.nome ? { ...i, ...dados, padrao: i.padrao } : i) ?? []);
+      setOpcoes((atuais) => selecionarImpressora(atuais, dados as Impressora));
+    }).catch((e) => { if (vivo) setErroGeral(e instanceof Error ? e.message : 'O driver não respondeu.'); });
+    return () => { vivo = false; };
+  }, [opcoes.impressora]);
 
   const adicionar = useCallback((arquivos: (File | Blob)[], nomes?: string[]) => {
     setErroGeral(null);
@@ -307,7 +322,11 @@ export function PrintWorkspace() {
         let nomeFinal = alvo.nomeOriginal;
 
         const operacao = conversaoPara(alvo.nomeOriginal);
-        if (operacao) {
+        if (operacao === 'images-to-pdf') {
+          const { imagemParaImpressao } = await import('@/lib/imagem/para-impressao');
+          pdf = await imagemParaImpressao(alvo.origem, alvo.nomeOriginal);
+          nomeFinal = replaceExtension(alvo.nomeOriginal, 'pdf');
+        } else if (operacao) {
           const arquivo =
             alvo.origem instanceof File ? alvo.origem : new File([alvo.origem], alvo.nomeOriginal);
           const carregado = await inspectFile(arquivo, alvo.id);
@@ -439,7 +458,9 @@ export function PrintWorkspace() {
   }, [item?.id, saida?.blob]);
 
   function mudar<K extends keyof OpcoesImpressao>(chave: K, valor: OpcoesImpressao[K]) {
-    setOpcoes((atual) => ({ ...atual, [chave]: valor }));
+    setOpcoes((atual) => chave === 'impressora'
+      ? selecionarImpressora(atual, impressoras?.find((i) => i.nome === valor))
+      : { ...atual, [chave]: valor });
   }
 
   function remover(id: string) {
@@ -505,10 +526,11 @@ export function PrintWorkspace() {
         let totalPartes = 0;
 
         try {
-          for await (const parte of fatiarParaImpressao(saida.blob, lote)) {
+          const porLote = lote && opcoes.duplex !== 'simplex' ? Math.ceil(lote / 2) * 2 : lote;
+          for await (const parte of fatiarParaImpressao(saida.blob, porLote)) {
             totalPartes = parte.total;
-            const nome = parte.total > 1 ? alvo.nome.replace(/\.pdf$/i, `-parte${parte.indice}.pdf`) : alvo.nome;
-            const paraEste = { ...opcoesDaFolha, ajustes: ajustesDe(alvo.ajustes) };
+            const nome = nomeDaParte(alvo.nome, parte.indice, parte.total);
+            const paraEste = { ...opcoesDaFolha, envioContinuo: lote === 0 && opcoes.envioContinuo !== false, ajustes: ajustesDe(alvo.ajustes) };
             const r = await imprimirArquivo(nome, parte.blob, paraEste, (feitas, total) =>
               atividade.registrar(
                 tarefa,
@@ -572,7 +594,7 @@ export function PrintWorkspace() {
   function resetar() {
     esquecerOpcoes();
     const padrao = impressoras?.find((i) => i.padrao) ?? impressoras?.[0];
-    setOpcoes({ ...OPCOES_PADRAO, impressora: padrao?.nome });
+    setOpcoes(selecionarImpressora(OPCOES_PADRAO, padrao));
     setPorFolha(1);
     setLote(0);
     setZoom(0);
@@ -602,7 +624,7 @@ export function PrintWorkspace() {
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Imprimir</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted sm:text-[15px]">
               Solte fotos, PDFs, Word, Excel e texto de uma vez. Cada arquivo entra na fila, é convertido aqui mesmo e
-              sai como um trabalho próprio na impressora — sem precisar juntar tudo num documento antes.
+              pode ser impresso separado ou unido em um PDF antes de enviar.
             </p>
           </div>
         </div>
@@ -653,6 +675,11 @@ export function PrintWorkspace() {
                 />
               </>
             ) : null}
+            <JuntarFila fila={fila} desabilitado={preparando || Boolean(imprimindo)} onJuntar={(unido) => {
+              const unidos = new Set(fila.map((i) => i.id));
+              setFila((atual) => [unido, ...atual.filter((i) => !unidos.has(i.id))]);
+              setSelecionado(unido.id); setMontado(null); setIntervalo('');
+            }} />
             <FilaDeArquivos
               fila={fila}
               selecionado={selecionado}
