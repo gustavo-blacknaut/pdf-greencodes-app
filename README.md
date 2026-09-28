@@ -1,10 +1,10 @@
-# OPUS 5.0 e PDF.GreenCodes
+# PDF.GreenCodes 5.0 OPUS e edição completa
 
-Um código, duas edições para Windows. A **OPUS 5.0**, preparada para a Opus Gráfica, mostra as ferramentas do fluxo de trabalho da loja. A edição **PDF.GreenCodes completa** mantém também as ferramentas menos usadas, no final da lista. Ambas processam os arquivos localmente.
+Um código, duas edições para Windows. O aplicativo continua se chamando **PDF.GreenCodes**. A versão **5.0 OPUS**, preparada para a Opus Gráfica, mostra as ferramentas do fluxo de trabalho da loja. A edição **PDF.GreenCodes completa** mantém também as ferramentas menos usadas, no final da lista. Ambas processam os arquivos localmente.
 
 Os instaladores são publicados nas [versões do projeto](https://github.com/gustavo-blacknaut/pdf-greencodes-app/releases/latest). O site continua disponível em [pdf.greencodes.com.br](https://pdf.greencodes.com.br).
 
-## Edição OPUS 5.0
+## Edição PDF.GreenCodes 5.0 OPUS
 
 - Paint foi retirado. Separar chapas e Separar pares e ímpares foram excluídos das duas edições.
 - A edição OPUS omite sangria, marcas de corte, calibração, carimbo de logo, cartões, rotação isolada, páginas em branco isoladas, marcas de dobra, cabeçalho/rodapé, assinatura, marca d'água em PDF, separação por tamanho, repetição, juntar frente e verso e dividir páginas. Organizar páginas continua com rotação, duplicação e inserção de páginas em branco. Intercalar PDF continua disponível. Dividir páginas recortava a folha sem ampliar o texto.
@@ -23,7 +23,7 @@ Os instaladores são publicados nas [versões do projeto](https://github.com/gus
 npm ci
 npm run verificar          # tamanho, TypeScript, Vitest e Rust
 npm run motor              # testes do motor Python
-npm run app:build:opus     # OPUS_5.0.0_x64-setup.exe
+npm run app:build:opus     # PDF.GreenCodes 5.0 OPUS_5.0.0_x64-setup.exe
 npm run app:build          # PDF.GreenCodes_5.0.0_x64-setup.exe
 ```
 

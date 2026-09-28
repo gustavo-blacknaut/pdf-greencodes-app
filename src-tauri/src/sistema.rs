@@ -18,11 +18,11 @@ const CHAVE_DE_INICIO: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\R
 #[cfg(not(feature = "opus"))]
 const NOME_NO_INICIO: &str = "PDF.GreenCodes";
 #[cfg(feature = "opus")]
-const NOME_NO_INICIO: &str = "OPUS";
+const NOME_NO_INICIO: &str = "PDF.GreenCodes 5.0 OPUS";
 #[cfg(not(feature = "opus"))]
 const PREFERENCIAS: &str = r"HKCU\Software\PDF.GreenCodes";
 #[cfg(feature = "opus")]
-const PREFERENCIAS: &str = r"HKCU\Software\OPUS";
+const PREFERENCIAS: &str = r"HKCU\Software\PDF.GreenCodes 5.0 OPUS";
 
 struct Acao {
     extensao: &'static str,
@@ -84,6 +84,12 @@ pub fn atualizar_caminhos() {
     }
     let exe = executavel().to_string_lossy().to_lowercase();
 
+    if cfg!(feature = "opus") && reg(&["query", CHAVE_DE_INICIO, "/v", "OPUS"]) {
+        if inicio_ativo() || definir_inicio(true) {
+            reg(&["delete", CHAVE_DE_INICIO, "/v", "OPUS", "/f"]);
+        }
+    }
+
     let comando_do_menu = format!(r"{}\command", caminho_da_chave(&ACOES[0]));
     if menu_ativo() && !consultar(&["query", &comando_do_menu, "/ve"]).contains(&exe) {
         ativar_menu();
@@ -119,7 +125,7 @@ fn ativar_menu() -> bool {
 
     for acao in ACOES {
         let chave = caminho_da_chave(acao);
-        let rotulo = if cfg!(feature = "opus") { acao.rotulo.replace("PDF.GreenCodes", "OPUS") } else { acao.rotulo.into() };
+        let rotulo = if cfg!(feature = "opus") { acao.rotulo.replace("PDF.GreenCodes", "PDF.GreenCodes 5.0 OPUS") } else { acao.rotulo.into() };
         reg(&["add", &chave, "/ve", "/d", &rotulo, "/f"]);
         reg(&["add", &chave, "/v", "Icon", "/d", &icone, "/f"]);
 

@@ -3,11 +3,8 @@
  *
  *   npm run publicar-app -- notas.md
  *
- * Cada release leva o instalador duas vezes: com a versão no nome, que é o
- * que o Tauri gera, e com o nome fixo `PDF.GreenCodes-Setup.exe`. É o nome
- * fixo que o botão "Baixar o aplicativo" do site pede, pelo endereço
- * `releases/latest/download/...`: com a versão no nome, o link quebraria a
- * cada release nova.
+ * Cada edição tem o instalador versionado e um nome fixo para download. A
+ * edição OPUS também conserva o nome fixo antigo para links já distribuídos.
  *
  * Confere antes que a versão é a mesma nos três lugares onde ela mora, e que
  * o instalador existe — publicar release sem .exe deixa a loja sem ter o que
@@ -41,11 +38,13 @@ const comVersao = path.join(pasta, `PDF.GreenCodes_${versao}_x64-setup.exe`);
 if (!existsSync(comVersao)) falhar(`não achei ${comVersao}. Rode antes: npm run app:build`);
 
 const fixo = path.join(pasta, NOME_FIXO);
-const opusComVersao = path.join(pasta, `OPUS_${versao}_x64-setup.exe`);
+const opusComVersao = path.join(pasta, `PDF.GreenCodes 5.0 OPUS_${versao}_x64-setup.exe`);
 if (!existsSync(opusComVersao)) falhar(`não achei ${opusComVersao}. Rode antes: npm run app:build:opus`);
-const opusFixo = path.join(pasta, 'OPUS-Setup.exe');
+const opusFixo = path.join(pasta, 'PDF.GreenCodes-5.0-OPUS-Setup.exe');
+const opusFixoLegado = path.join(pasta, 'OPUS-Setup.exe');
 copyFileSync(comVersao, fixo);
 copyFileSync(opusComVersao, opusFixo);
+copyFileSync(opusComVersao, opusFixoLegado);
 
 const titulo = readFileSync(notas, 'utf8').match(/^#\s+(.+)$/m)?.[1] ?? `PDF.GreenCodes ${versao}`;
 console.log(`Publicando v${versao}: ${titulo}`);
@@ -53,7 +52,7 @@ console.log(`Publicando v${versao}: ${titulo}`);
 // falhou sem achar o programa, e a release não saiu.
 execFileSync(
   process.platform === 'win32' ? 'gh.exe' : 'gh',
-  ['release', 'create', `v${versao}`, comVersao, fixo, opusComVersao, opusFixo, '--repo', REPOSITORIO, '--target', 'main', '--title', `v${versao} — ${titulo}`, '--notes-file', notas],
+  ['release', 'create', `v${versao}`, comVersao, fixo, opusComVersao, opusFixo, opusFixoLegado, '--repo', REPOSITORIO, '--target', 'main', '--title', `v${versao} — ${titulo}`, '--notes-file', notas],
   { stdio: 'inherit' },
 );
 console.log(`\nO botão do site já baixa esta versão:\nhttps://github.com/${REPOSITORIO}/releases/latest/download/${NOME_FIXO}`);
