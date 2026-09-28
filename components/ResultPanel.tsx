@@ -16,7 +16,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ConviteDoAplicativo } from './ConviteDoAplicativo';
-import { PreviaDoResultado } from './PreviaDoResultado';
 import { vault } from '@/lib/ephemeral';
 import { salvarResultado } from '@/lib/salvar-resultado';
 import { zipFiles, type OperationId, type RunResult } from '@/lib/pdf/engine';
@@ -349,8 +348,6 @@ export function ResultPanel({
         </div>
       )}
 
-      <PreviaDoResultado arquivos={entry.files} />
-
       <ul className="divide-y">
         {entry.files.map((file) => {
           const done = entry.downloaded.has(file.name);
@@ -363,9 +360,7 @@ export function ResultPanel({
                   {file.pages ? ` · ${file.pages} página${file.pages > 1 ? 's' : ''}` : ''}
                 </p>
               </div>
-              {/* A impressão é do aplicativo: no site ela leva a uma página de
-                  download. O arquivo que ficou no disco também fica de fora: a
-                  prévia teria que carregá-lo inteiro na tela. */}
+              {/* A impressão é do aplicativo: no site ela leva a uma página de download. */}
               {noApp && !file.caminho && file.name.toLowerCase().endsWith('.pdf') && (
                 <button
                   type="button"

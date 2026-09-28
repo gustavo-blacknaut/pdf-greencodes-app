@@ -21,8 +21,11 @@ const motorFalso = {
   entregar: vi.fn(),
 };
 
+const ambiente = vi.hoisted(() => ({ noApp: false }));
+
 vi.mock('../desktop', () => ({
   motorPython: () => motorFalso,
+  estaNoAplicativo: () => ambiente.noApp,
 }));
 
 const { rodarNoPython } = await import('./motor-python');
@@ -50,6 +53,7 @@ const UNIDO = 'C:\\temp\\x\\a-unido.pdf';
 const COMPRIMIDO = 'C:\\temp\\x\\a-unido-comprimido.pdf';
 
 beforeEach(() => {
+  ambiente.noApp = false;
   motorFalso.pastaTemporaria.mockResolvedValue('C:\\temp\\x');
   motorFalso.gravarEntrada.mockImplementation(async (_pasta: string, nome: string) => `C:\\temp\\x\\${nome}`);
   motorFalso.limpar.mockResolvedValue(undefined);
@@ -104,6 +108,19 @@ describe('juntar e comprimir no mesmo motor', () => {
 
     expect(motorFalso.executar).toHaveBeenCalledTimes(1);
     expect(resultado.jaComprimido).toBe(false);
+  });
+
+  it('no aplicativo entrega o PDF unido direto ao disco sem ler o resultado na janela', async () => {
+    ambiente.noApp = true;
+    motorFalso.entregar.mockResolvedValue({ ok: true, caminho: 'C:\\Downloads\\a-unido.pdf', tamanho: 50 });
+    motorFalso.executar.mockReset();
+    motorFalso.executar.mockResolvedValue({ arquivo: UNIDO, paginas: 3, notas: [] });
+
+    const resultado = await rodarNoPython('merge', contexto({ compressaoApos: 'nao' }));
+
+    expect(motorFalso.lerSaida).not.toHaveBeenCalled();
+    expect(motorFalso.entregar).toHaveBeenCalledWith(UNIDO);
+    expect(resultado.files[0]).toMatchObject({ caminho: 'C:\\Downloads\\a-unido.pdf', tamanho: 50 });
   });
 
   it('junta as notas das duas etapas, avisa que já comprimiu e mostra a economia', async () => {

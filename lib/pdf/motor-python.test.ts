@@ -21,6 +21,7 @@ const motorFalso = {
 
 vi.mock('../desktop', () => ({
   motorPython: () => (estaNoApp ? motorFalso : null),
+  estaNoAplicativo: () => estaNoApp,
 }));
 
 let estaNoApp = true;

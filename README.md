@@ -14,7 +14,6 @@ Os instaladores são publicados nas [versões do projeto](https://github.com/gus
 - Conversor de fotos inclui HEIC/HEIF e os formatos decodificáveis pelo navegador, com saída PNG, JPG ou WEBP. PNG preserva os pixels; JPG envolve compressão com perda. Upscaling de imagem usa reamostragem Lanczos.
 - Remover fundo preserva resolução e transparência; Limpar digitalização preserva cores no modo padrão.
 - A fila de impressão pede a senha quando recebe um PDF protegido. A senha não é guardada nas preferências.
-- Os resultados PDF têm prévia paginada com zoom; imagens e relatórios também podem ser conferidos na tela. Resultados Word também oferecem prévia convertida para PDF, com aviso de possíveis diferenças de diagramação. Arquivos grandes só carregam a prévia mediante solicitação.
 - Iniciar com Windows fica no menu do ícone da bandeja, ao lado do relógio. A escolha é opcional, com configurações independentes para cada edição.
 
 ### Compilar e verificar
@@ -23,8 +22,8 @@ Os instaladores são publicados nas [versões do projeto](https://github.com/gus
 npm ci
 npm run verificar          # tamanho, TypeScript, Vitest e Rust
 npm run motor              # testes do motor Python
-npm run app:build:opus     # PDF.GreenCodes 5.0 OPUS_5.0.0_x64-setup.exe
-npm run app:build          # PDF.GreenCodes_5.0.0_x64-setup.exe
+npm run app:build:opus     # PDF.GreenCodes 5.0 OPUS_5.0.1_x64-setup.exe
+npm run app:build          # PDF.GreenCodes_5.0.1_x64-setup.exe
 ```
 
 Os instaladores ficam em `src-tauri/target/release/bundle/nsis/`. O build OPUS seleciona `NEXT_PUBLIC_APP_EDITION=opus`, a configuração `tauri.opus.json` e a feature Rust `opus`. Não execute builds das duas edições simultaneamente: eles compartilham a pasta de exportação. As configurações, atalhos e inicialização automática no Windows são separados.

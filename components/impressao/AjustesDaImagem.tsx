@@ -41,7 +41,7 @@ export function AjustesDaImagem({
   onMudar: (ajustes: Ajustes) => void;
   onTodos: () => void;
 }) {
-  const [aberto, setAberto] = useState(true);
+  const [aberto, setAberto] = useState(false);
   const mexido = temAjuste(ajustes) || ajustes.girar !== 0;
 
   const mudar = <K extends keyof Ajustes>(chave: K, valor: Ajustes[K]) => onMudar({ ...ajustes, [chave]: valor });
@@ -54,6 +54,7 @@ export function AjustesDaImagem({
         <button
           type="button"
           onClick={() => setAberto((v) => !v)}
+          aria-expanded={aberto}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <SlidersHorizontal className="h-4 w-4 shrink-0 text-brand" />

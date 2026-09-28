@@ -24,7 +24,7 @@
  * devolve falso e o motor de TypeScript atende tudo, como sempre atendeu.
  */
 
-import { motorPython } from '../desktop';
+import { estaNoAplicativo, motorPython } from '../desktop';
 import { abortarSePreciso } from './guards';
 import type { OutputFile, RunContext, RunResult } from './tipos';
 
@@ -427,9 +427,11 @@ export async function rodarNoPython(id: string, ctx: RunContext): Promise<RunRes
       abortarSePreciso(ctx.signal);
       caminhos.push(await entradaDoMotor(motor, pasta, arquivo));
     }
-    // Com entrada no disco, a saída também não volta para a memória: vai
-    // direto para Downloads, e a tela recebe só onde ela está.
-    const noDisco = ctx.files.some((arquivo) => arquivo.caminho);
+    // Juntar e intercalar não precisam carregar o PDF final na janela: o
+    // aplicativo já o salva em Downloads. Isso evita uma cópia grande e a
+    // segunda gravação mesmo quando os originais eram pequenos.
+    const noDisco = ctx.files.some((arquivo) => arquivo.caminho)
+      || (estaNoAplicativo() && (id === 'merge' || id === 'interleave'));
 
     // Sem `saida`, o motor nomeia sozinho ao lado da entrada — que é esta
     // pasta temporária. Sai `contrato-comprimido.pdf` em vez de um "saida"

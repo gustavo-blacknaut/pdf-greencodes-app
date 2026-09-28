@@ -561,7 +561,7 @@ export function PrintWorkspace() {
                 tarefa,
                 `Desenhando página ${feitas} de ${total}` + (parte.total > 1 ? ` (lote ${parte.indice}/${parte.total})` : ''),
                 feitas / total,
-              ),
+              ), () => atividade.registrar(tarefa, 'Aguardando o driver da impressora', 1),
             );
 
             if (r.cancelado) {
@@ -692,6 +692,7 @@ export function PrintWorkspace() {
                   onPagina={setPagina}
                 />
                 <AjustesDaImagem
+                  key={item.id}
                   nome={item.nomeOriginal}
                   ajustes={ajustesDe(item.ajustes)}
                   cinzaDaFila={opcoes.colorido === false}

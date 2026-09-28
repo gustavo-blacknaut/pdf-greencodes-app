@@ -21,6 +21,9 @@ export async function enviarEmFluxo(
   let enviadas = 0;
   let quantidadePendente = 0;
   let cancelado = false;
+  let proximoFim = 0;
+  let parte = 0;
+  let totalDePartes = 1;
   const esperar = async () => {
     if (!pendente) return;
     const resposta = await pendente;
@@ -31,15 +34,22 @@ export async function enviarEmFluxo(
   };
   try {
     await desenhar(async (indice, bytes, total) => {
+      if (!proximoFim) {
+        const primeiro = tamanho > 0 ? Math.min(tamanho, total) : total;
+        const seguintes = Math.max(16, tamanho * 4);
+        proximoFim = primeiro;
+        totalDePartes = tamanho > 0 ? 1 + Math.ceil((total - primeiro) / seguintes) : 1;
+      }
       atual ??= await transporte.preparar();
       await transporte.pagina(atual, indice, bytes);
-      const limite = tamanho > 0 ? tamanho : total;
-      if (indice % limite !== 0 && indice !== total) return;
+      if (indice !== proximoFim && indice !== total) return;
       await esperar();
       const id = atual;
       atual = undefined;
-      quantidadePendente = indice % limite || limite;
-      pendente = transporte.enviar(id, nomeDaParte(nome, Math.ceil(indice / limite), Math.ceil(total / limite)))
+      quantidadePendente = indice - enviadas;
+      parte += 1;
+      proximoFim = Math.min(total, proximoFim + Math.max(16, tamanho * 4));
+      pendente = transporte.enviar(id, nomeDaParte(nome, parte, totalDePartes))
         .catch((e) => ({ ok: false, erro: e instanceof Error ? e.message : String(e) }));
     });
     await esperar();

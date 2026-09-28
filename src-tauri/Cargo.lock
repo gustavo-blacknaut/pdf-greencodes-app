@@ -2479,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-greencodes"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "serde",
  "serde_json",

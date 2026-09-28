@@ -562,6 +562,7 @@ export async function imprimirArquivo(
   blob: Blob,
   opcoes?: OpcoesImpressao,
   onProgresso?: (feitas: number, total: number) => void,
+  onAguardandoDriver?: () => void,
 ): Promise<ResultadoSalvar> {
   if (estaNoAplicativo()) {
     const { prepararParaImpressao } = await import('./pdf/impressao');
@@ -591,7 +592,11 @@ export async function imprimirArquivo(
           usarDialogo: opcoes?.usarDialogo,
         },
       }),
-    }, (entregar) => prepararParaImpressao(blob, montagemDe(opcoes), entregar, onProgresso));
+    }, async (entregar) => {
+      const total = await prepararParaImpressao(blob, montagemDe(opcoes), entregar, onProgresso);
+      onAguardandoDriver?.();
+      return total;
+    });
   }
 
   return new Promise((resolve) => {
