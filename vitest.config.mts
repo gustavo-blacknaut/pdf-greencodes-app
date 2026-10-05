@@ -17,7 +17,7 @@ export default defineConfig({
     hookTimeout: 30_000,
 
     /*
-     * `.claude/worktrees` guarda cópias inteiras do projeto, e o vitest as
+     * Pastas ocultas de worktrees podem guardar cópias inteiras do projeto, e o vitest as
      * varria junto: cada teste rodava duas vezes, o total dobrava, e uma
      * cópia velha continuava reprovando com um defeito já corrigido aqui.
      * Pior: o worktree apagado do git deixa os arquivos no disco, então a
@@ -26,6 +26,6 @@ export default defineConfig({
      * `node_modules`, `dist` e `.next` vêm do padrão do vitest e precisam ser
      * repetidos: informar `exclude` substitui a lista inteira.
      */
-    exclude: ['**/node_modules/**', '**/dist/**', '**/dist-app/**', '**/.next/**', '**/out/**', '**/.claude/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/dist-app/**', '**/.next/**', '**/out/**', '**/.*/worktrees/**'],
   },
 });
