@@ -329,14 +329,20 @@ export function tamanhoDe(arquivo: File): number {
 /**
  * Lê um arquivo já escolhido e entrega como File.
  *
- * PDF grande vem vazio, marcado com o caminho: quem precisa dele pergunta a
- * `arquivoNoDisco`. Imagem e Office grandes ainda vêm inteiros — só o motor
- * de PDF sabe trabalhar direto do disco.
+ * Arquivos que o motor consegue abrir pelo caminho ficam vazios na janela;
+ * `arquivoNoDisco` guarda o caminho e o tamanho real. As demais ferramentas
+ * continuam recebendo os bytes quando precisam deles.
  */
-export async function lerArquivoEscolhido(escolhido: ArquivoEscolhido): Promise<File> {
+export async function lerArquivoEscolhido(escolhido: ArquivoEscolhido, preferirCaminho = false): Promise<File> {
   if (!estaNoAplicativo()) throw new Error('Fora do aplicativo.');
-  if (escolhido.tamanho > LIMIAR_EM_DISCO && escolhido.nome.toLowerCase().endsWith('.pdf')) {
-    const vazio = new File([], escolhido.nome, { type: 'application/pdf' });
+  const nome = escolhido.nome.toLowerCase();
+  if ((preferirCaminho && /\.(pdf|docx?|jpe?g|png)$/.test(nome))
+    || (escolhido.tamanho > LIMIAR_EM_DISCO && nome.endsWith('.pdf'))) {
+    const tipo = nome.endsWith('.pdf') ? 'application/pdf' : nome.endsWith('.docx')
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : nome.endsWith('.doc') ? 'application/msword'
+        : nome.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const vazio = new File([], escolhido.nome, { type: tipo });
     noDisco.set(vazio, { caminho: escolhido.caminho, tamanho: escolhido.tamanho });
     return vazio;
   }

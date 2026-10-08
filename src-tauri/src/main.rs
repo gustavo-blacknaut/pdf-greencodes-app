@@ -36,7 +36,7 @@ struct Fila(Mutex<Vec<String>>);
 /// O que o programa abre: o que o seletor, o arrastar e o "Abrir com"
 /// aceitam. Tem que andar junto com o `accept` das ferramentas.
 const EXTENSOES_ACEITAS: &[&str] = &[
-    "pdf", "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "heic", "heif", "docx", "xls", "xlsx", "xlsm", "pptx",
+    "pdf", "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "heic", "heif", "doc", "docx", "xls", "xlsx", "xlsm", "pptx",
     "txt",
 ];
 

@@ -147,9 +147,10 @@ const NO_PYTHON: Record<string, Traducao> = {
   merge: {
     acao: 'juntar',
     rotulo: 'Juntando',
-    // Juntar aceita imagem misturada com PDF, e desenhar a imagem numa página
-    // é serviço do lado de cá. Só a fila 100% PDF desce para o Python.
-    aceita: (ctx) => ctx.files.every((f) => f.name.toLowerCase().endsWith('.pdf')),
+    // PDF, Word e fotos comuns passam pelo motor sem carregar os pixels na janela.
+    // HEIC/AVIF e outros formatos seguem no decodificador da interface.
+    aceita: (ctx) => ctx.files.every((f) => /\.(pdf|docx?|jpe?g|png)$/i.test(f.name)),
+    opcoes: (o) => ({ formatoImagem: String(o.formatoImagem ?? 'a4') }),
     depois: (o) => {
       const nivel = String(o.compressaoApos ?? '');
       if (nivel !== 'sem-perda' && nivel !== 'alta') return null;

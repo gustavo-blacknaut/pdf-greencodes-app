@@ -16,6 +16,7 @@ export function Dropzone({
   onEscolhidos,
   onLendo,
   onFalha,
+  preferirCaminho,
 }: {
   accept: string[];
   acceptLabel: string;
@@ -28,6 +29,7 @@ export function Dropzone({
   onLendo?: (nome: string, lidos: number, total: number) => void;
   /** Chamado quando a leitura não foi até o fim, para tirar o marcador da tela. */
   onFalha?: (nomes: string[], erro: string) => void;
+  preferirCaminho?: boolean;
 }) {
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
@@ -40,6 +42,7 @@ export function Dropzone({
     onEscolhidos,
     onLendo,
     onFalha,
+    preferirCaminho,
   });
 
   // Colar um arquivo (Ctrl+V) é o caminho mais rápido depois de um print.

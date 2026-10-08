@@ -167,11 +167,11 @@ comMotor('juntar, so no Python', () => {
     expect(doc.getPageCount()).toBe(9);
   }, 120_000);
 
-  it('fila com imagem no meio nao desce para o Python', async () => {
+  it('fila com JPG no meio usa o Python para poupar memoria', async () => {
     const pedido = ctx([await pdfDe(2)], {});
     pedido.files.push({ ...pedido.files[0], id: 'img', name: 'foto.jpg', type: 'image/jpeg' });
     await comPython(async () => {
-      expect(temMotorPython('merge', pedido), 'imagem tem que ficar no JavaScript').toBe(false);
+      expect(temMotorPython('merge', pedido), 'JPG deve seguir pelo motor sem entrar na memoria da janela').toBe(true);
     });
   });
 });

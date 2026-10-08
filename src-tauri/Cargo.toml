@@ -1,6 +1,6 @@
 [package]
 name = "pdf-greencodes"
-version = "5.0.1"
+version = "5.0.2"
 description = "Ferramentas de PDF para grafica"
 authors = ["gustavo-blacknaut"]
 edition = "2021"

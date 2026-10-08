@@ -43,16 +43,19 @@ export async function imageThumbnail(file: File): Promise<string | null> {
  * o documento na janela.
  */
 async function inspecionarNoDisco(file: File, id: string, caminho: string, tamanho: number): Promise<LoadedFile> {
+  const word = /\.docx?$/i.test(file.name);
+  const imagem = /\.(jpe?g|png)$/i.test(file.name);
   const base: LoadedFile = {
     id,
     name: file.name,
     size: tamanho,
-    type: 'application/pdf',
+    type: file.type || (word ? 'application/msword' : imagem ? 'image/jpeg' : 'application/pdf'),
     bytes: new ArrayBuffer(0),
-    pageCount: null,
+    pageCount: imagem ? 1 : null,
     thumbnail: null,
     caminho,
   };
+  if (word || imagem) return base;
   const motor = motorPython();
   if (!motor) return { ...base, error: 'Arquivo grande só abre no aplicativo.' };
   try {
@@ -61,7 +64,7 @@ async function inspecionarNoDisco(file: File, id: string, caminho: string, taman
     };
     const info = dados.arquivos?.[0];
     if (info?.precisaSenha) {
-      return { ...base, error: 'Protegido por senha. Para arquivo deste tamanho, desbloqueie antes num arquivo menor.' };
+      return { ...base, locked: true, error: 'Protegido por senha' };
     }
     return { ...base, pageCount: info?.paginas ?? null };
   } catch (erro) {
@@ -86,8 +89,8 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
   };
 
   const nomeMinusculo = base.name.toLowerCase();
-  // .docx, .xlsx e .pptx sao o mesmo pacote zip de XML por dentro.
-  const ehOfficePeloNome = /\.(docx|xls|xlsx|xlsm|pptx)$/.test(nomeMinusculo);
+  // .doc e .xls antigos usam contêiner OLE; os formatos novos são ZIP.
+  const ehOfficePeloNome = /\.(doc|docx|xls|xlsx|xlsm|pptx)$/.test(nomeMinusculo);
   const ehTxtPeloNome = nomeMinusculo.endsWith('.txt');
 
   const ehImagem = pareceSerImagem(nomeMinusculo, base.type);
@@ -110,8 +113,9 @@ export async function inspectFile(file: File, id: string): Promise<LoadedFile> {
 
   if (ehOfficePeloNome) {
     const assinatura = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 8));
-    const xlsAntigo = nomeMinusculo.endsWith('.xls') && [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((b, i) => assinatura[i] === b);
-    if (!pareceMesmoDocx(bytes) && !xlsAntigo) {
+    const formatoAntigo = /\.(doc|xls)$/.test(nomeMinusculo)
+      && [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((b, i) => assinatura[i] === b);
+    if (!pareceMesmoDocx(bytes) && !formatoAntigo) {
       return { ...base, error: `Este arquivo tem extensão ${base.name.split('.').pop()} mas o conteúdo não é um documento do Office válido.` };
     }
     return { ...base, pageCount: null };
@@ -190,6 +194,20 @@ export async function gerarMiniatura(arquivo: LoadedFile): Promise<string | null
  * em memória, e some quando a aba fecha.
  */
 export async function desbloquearArquivo(arquivo: LoadedFile, senha: string): Promise<LoadedFile> {
+  if (arquivo.caminho) {
+    const motor = motorPython();
+    if (!motor) throw new Error('Não foi possível verificar a senha neste dispositivo.');
+    try {
+      const dados = (await motor.executar('informar', {
+        arquivos: [arquivo.caminho], senhas: [senha],
+      })) as { arquivos?: { paginas?: number; precisaSenha?: boolean }[] };
+      const info = dados.arquivos?.[0];
+      if (!info || info.precisaSenha) throw new Error('Senha incorreta para este arquivo.');
+      return { ...arquivo, senha, locked: false, error: undefined, pageCount: info.paginas ?? null };
+    } catch {
+      throw new Error('Senha incorreta para este arquivo.');
+    }
+  }
   let doc;
   try {
     doc = await openWithPdfJs(arquivo.bytes, senha);

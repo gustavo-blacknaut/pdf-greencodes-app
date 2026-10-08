@@ -15,6 +15,7 @@ import pymupdf
 from ..documento import abrir, faixa_de_paginas, nome_com_sufixo, salvar
 from ..encolher import ate_caber
 from ..protocolo import ErroDoUsuario, Pedido
+from ..word import converter_word
 
 # Quantas paginas copiar antes de avisar o andamento. Avisar a cada pagina num
 # documento de mil geraria mais mensagem que trabalho.
@@ -36,12 +37,34 @@ def juntar(pedido: Pedido) -> Dict[str, Any]:
         for indice, caminho in enumerate(pedido.arquivos):
             pedido.andamento(indice / len(pedido.arquivos), f"Arquivo {indice + 1} de {len(pedido.arquivos)}")
 
-            entrada = abrir(caminho, pedido.senha(indice))
+            convertido = None
+            if caminho.lower().endswith((".doc", ".docx")):
+                pedido.andamento(indice / len(pedido.arquivos), f"Convertendo {os.path.basename(caminho)} pelo Word")
+                convertido = converter_word(caminho)
             try:
-                saida.insert_pdf(entrada)
-                paginas += entrada.page_count
+                entrada = abrir(convertido or caminho, pedido.senha(indice))
+                try:
+                    if caminho.lower().endswith((".jpg", ".jpeg", ".png")) and pedido.opcao("formatoImagem", "a4") != "imagem":
+                        imagem = entrada[0].rect
+                        largura, altura = (842, 595) if imagem.width > imagem.height else (595, 842)
+                        pagina = saida.new_page(width=largura, height=altura)
+                        escala = min(largura / imagem.width, altura / imagem.height)
+                        foto = pymupdf.Rect(
+                            (largura - imagem.width * escala) / 2,
+                            (altura - imagem.height * escala) / 2,
+                            (largura + imagem.width * escala) / 2,
+                            (altura + imagem.height * escala) / 2,
+                        )
+                        pagina.show_pdf_page(foto, entrada, 0)
+                        paginas += 1
+                    else:
+                        saida.insert_pdf(entrada)
+                        paginas += entrada.page_count
+                finally:
+                    entrada.close()
             finally:
-                entrada.close()
+                if convertido:
+                    os.unlink(convertido)
 
         destino = pedido.saida or nome_com_sufixo(pedido.arquivos[0], "unido")
         bytes_saida = salvar(saida, destino, pedido.senha(0))

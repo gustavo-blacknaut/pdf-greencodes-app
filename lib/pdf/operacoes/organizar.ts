@@ -12,6 +12,9 @@ import { semGiro } from './grafica';
 import { folhaEmMm } from '../../impressao/layout';
 
 export async function merge(ctx: RunContext): Promise<RunResult> {
+  if (ctx.files.some((file) => /\.docx?$/i.test(file.name))) {
+    throw new Error('Para juntar arquivos do Word preservando o layout, use o aplicativo Windows com Microsoft Word instalado.');
+  }
   const { PDFDocument } = await loadPdfLib();
   const out = await PDFDocument.create();
   let inputBytes = 0;

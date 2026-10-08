@@ -60,6 +60,44 @@ class TestOrganizar:
         assert doc.page_count == 5
         doc.close()
 
+    def test_juntar_doc_preserva_a_pagina_exportada_pelo_word(self, criar_pdf, rodar, tmp_path, monkeypatch):
+        import motor.operacoes.organizar as organizar
+
+        word = tmp_path / "principal.doc"
+        word.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1"))
+        convertido = tmp_path / "word-exportado.pdf"
+        origem = pymupdf.open()
+        origem.new_page(width=420, height=595).insert_text((40, 60), "Documento Word")
+        origem.save(convertido)
+        origem.close()
+        monkeypatch.setattr(organizar, "converter_word", lambda caminho: str(convertido))
+        outro = criar_pdf(paginas=1, nome="anexo.pdf")
+        destino = str(tmp_path / "unido.pdf")
+
+        resultado = rodar("juntar", [str(word), outro], saida=destino)
+
+        assert resultado["paginas"] == 2
+        doc = pymupdf.open(destino)
+        assert tuple(round(x) for x in (doc[0].rect.width, doc[0].rect.height)) == (420, 595)
+        assert "Documento Word" in doc[0].get_text()
+        doc.close()
+        assert not convertido.exists()
+
+    def test_juntar_foto_em_a4_sem_achatar(self, criar_pdf, criar_foto_teste, rodar, tmp_path):
+        foto = criar_foto_teste(largura=600, altura=400)
+        destino = str(tmp_path / "com-foto.pdf")
+
+        resultado = rodar("juntar", [criar_pdf(paginas=1), foto], {"formatoImagem": "a4"}, saida=destino)
+
+        assert resultado["paginas"] == 2
+        doc = pymupdf.open(destino)
+        assert tuple(round(x) for x in (doc[1].rect.width, doc[1].rect.height)) == (842, 595)
+        imagens = doc[1].get_images()
+        assert len(imagens) == 1
+        largura, altura = doc[1].get_image_rects(imagens[0][0])[0].width, doc[1].get_image_rects(imagens[0][0])[0].height
+        assert abs(largura / altura - 1.5) < 0.01
+        doc.close()
+
     def test_juntar_com_um_arquivo_so_reclama(self, criar_pdf, rodar):
         with pytest.raises(ErroDoUsuario, match="pelo menos dois"):
             rodar("juntar", [criar_pdf(paginas=1)])

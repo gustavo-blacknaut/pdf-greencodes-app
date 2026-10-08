@@ -44,6 +44,7 @@ export function useSeletorDeArquivos({
   onEscolhidos,
   onLendo,
   onFalha,
+  preferirCaminho = false,
 }: {
   accept: string[];
   multiple: boolean;
@@ -52,6 +53,7 @@ export function useSeletorDeArquivos({
   onEscolhidos?: (escolhidos: ArquivoEscolhido[]) => void;
   onLendo?: (nome: string, lidos: number, total: number) => void;
   onFalha?: (nomes: string[], erro: string) => void;
+  preferirCaminho?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [noApp, setNoApp] = useState(false);
@@ -75,7 +77,7 @@ export function useSeletorDeArquivos({
       await lerEscolhidos(lista);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accept, multiple, onEscolhidos, onFalha, onFiles, onLendo],
+    [accept, multiple, onEscolhidos, onFalha, onFiles, onLendo, preferirCaminho],
   );
 
   const abrir = useCallback(async () => {
@@ -88,7 +90,7 @@ export function useSeletorDeArquivos({
     if (!escolhidos.length) return;
     await lerEscolhidos(multiple ? escolhidos : escolhidos.slice(0, 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accept, multiple, noApp, onEscolhidos, onFalha, onFiles, onLendo]);
+  }, [accept, multiple, noApp, onEscolhidos, onFalha, onFiles, onLendo, preferirCaminho]);
 
   async function lerEscolhidos(lista: ArquivoEscolhido[]) {
     onEscolhidos?.(lista);
@@ -109,10 +111,10 @@ export function useSeletorDeArquivos({
           // memória sem adiantar nada, porque o disco é o mesmo. Espera os
           // pequenos que já saíram e só depois começa.
           await Promise.all(lidos);
-          lidos.push(lerArquivoEscolhido(escolhido));
+          lidos.push(lerArquivoEscolhido(escolhido, preferirCaminho));
           await lidos[lidos.length - 1];
         } else {
-          lidos.push(vez(() => lerArquivoEscolhido(escolhido)));
+          lidos.push(vez(() => lerArquivoEscolhido(escolhido, preferirCaminho)));
         }
       }
       // Na ordem em que foram escolhidos, e não na em que terminaram: é a

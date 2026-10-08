@@ -128,7 +128,7 @@ pub fn rotulo_da_extensao(extensao: &str) -> &'static str {
         "png" => "Imagem PNG",
         "webp" => "Imagem WebP",
         "txt" => "Texto",
-        "docx" => "Documento do Word",
+        "doc" | "docx" => "Documento do Word",
         "xlsx" => "Planilha do Excel",
         "csv" => "Planilha em texto",
         _ => "Documento PDF",

@@ -18,7 +18,7 @@ import type { Tool } from '@/lib/tools';
 import { limitarConcorrencia } from '@/lib/utils';
 import type { ArquivoNaFila } from './FilaDeArquivos';
 
-const OFFICE = ['.docx', '.xls', '.xlsx', '.xlsm', '.pptx'];
+const OFFICE = ['.doc', '.docx', '.xls', '.xlsx', '.xlsm', '.pptx'];
 
 /**
  * Separa o que a ferramenta aceita, e diz o que ficou de fora.

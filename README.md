@@ -15,6 +15,7 @@ Os instaladores são publicados nas [versões do projeto](https://github.com/gus
 - Remover fundo preserva resolução e transparência; Limpar digitalização preserva cores no modo padrão.
 - A fila de impressão pede a senha quando recebe um PDF protegido. A senha não é guardada nas preferências.
 - Iniciar com Windows fica no menu do ícone da bandeja, ao lado do relógio. A escolha é opcional, com configurações independentes para cada edição.
+- Juntar aceita .doc e .docx no aplicativo Windows quando o Microsoft Word está instalado: a exportação para PDF usa o próprio Word, preservando a diagramação antes de unir as páginas. O resultado mantém o identificador numérico automático em Downloads.
 
 ### Compilar e verificar
 
@@ -22,8 +23,8 @@ Os instaladores são publicados nas [versões do projeto](https://github.com/gus
 npm ci
 npm run verificar          # tamanho, TypeScript, Vitest e Rust
 npm run motor              # testes do motor Python
-npm run app:build:opus     # PDF.GreenCodes 5.0 OPUS_5.0.1_x64-setup.exe
-npm run app:build          # PDF.GreenCodes_5.0.1_x64-setup.exe
+npm run app:build:opus     # PDF.GreenCodes 5.0 OPUS_5.0.2_x64-setup.exe
+npm run app:build          # PDF.GreenCodes_5.0.2_x64-setup.exe
 ```
 
 Os instaladores ficam em `src-tauri/target/release/bundle/nsis/`. O build OPUS seleciona `NEXT_PUBLIC_APP_EDITION=opus`, a configuração `tauri.opus.json` e a feature Rust `opus`. Não execute builds das duas edições simultaneamente: eles compartilham a pasta de exportação. As configurações, atalhos e inicialização automática no Windows são separados.

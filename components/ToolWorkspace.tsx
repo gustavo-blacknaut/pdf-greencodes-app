@@ -269,6 +269,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
     onEscolhidos: mostrarEscolhidos,
     onLendo: marcarLeitura,
     onFalha: descartarMarcadores,
+    preferirCaminho: tool.operation === 'merge' || tool.operation === 'interleave',
   });
 
   // Arquivo arrastado para a janela do aplicativo: o mesmo trilho do diálogo.
@@ -654,6 +655,7 @@ export function ToolWorkspace({ tool }: { tool: Tool }) {
             acceptLabel={tool.acceptLabel}
             multiple={tool.multiple}
             onFiles={addFiles}
+            preferirCaminho={tool.operation === 'merge' || tool.operation === 'interleave'}
           />
         </div>
       ) : tool.editor ? (
