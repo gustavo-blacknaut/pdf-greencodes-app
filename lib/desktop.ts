@@ -16,7 +16,7 @@
  */
 
 import { invoke as invokeDoTauri, isTauri, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, TauriEvent } from '@tauri-apps/api/event';
 
 /**
  * O invoke do Tauri, com o erro virando Error.
@@ -372,17 +372,24 @@ export async function lerCaminho(caminho: string): Promise<ArrayBuffer> {
 /**
  * Arquivos soltos na janela.
  *
- * O Tauri pega o arrastar antes da página: a página nunca recebe o arquivo, e
- * sem isto a área "Solte seu arquivo aqui" não fazia nada no aplicativo. Vem
- * o caminho, como no diálogo. Devolve a função de cancelar a inscrição.
+ * Escuta o evento nativo do Tauri. O Rust registra os caminhos recebidos do
+ * Windows antes de permitir que a interface leia os arquivos.
  */
 export function aoSoltarArquivos(callback: (lista: ArquivoEscolhido[]) => void): () => void {
-  return ouvir('sistema:soltar-arquivos', callback);
+  return ouvir<{ paths: string[] }>(TauriEvent.DRAG_DROP, ({ paths }) => {
+    if (!paths?.length) return;
+    void invoke<ArquivoEscolhido[]>('arquivos_soltos', { caminhos: paths })
+      .then((lista) => { if (lista.length) callback(lista); })
+      .catch(() => {});
+  });
 }
 
 /** Um arquivo está sendo arrastado por cima da janela (true) ou saiu dela (false). */
 export function aoArrastar(callback: (arrastando: boolean) => void): () => void {
-  return ouvir('sistema:arrastando', callback);
+  const desligarEntrada = ouvir(TauriEvent.DRAG_ENTER, () => callback(true));
+  const desligarSaida = ouvir(TauriEvent.DRAG_LEAVE, () => callback(false));
+  const desligarSoltura = ouvir(TauriEvent.DRAG_DROP, () => callback(false));
+  return () => { desligarEntrada(); desligarSaida(); desligarSoltura(); };
 }
 
 /** Progresso da leitura. Devolve a função de cancelar a inscrição. */

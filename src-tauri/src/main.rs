@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewEvent, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use impressao::{OpcoesDeImpressao, Preparada, Sessoes};
@@ -157,6 +157,12 @@ struct Escolhido {
 /// permitido. Pasta, atalho quebrado ou formato que o programa nao abre ficam
 /// de fora.
 fn entregue(app: &AppHandle, caminho: &Path) -> Option<Escolhido> {
+    let escolhido = descrever(caminho)?;
+    app.state::<Permitidos>().permitir(caminho);
+    Some(escolhido)
+}
+
+fn descrever(caminho: &Path) -> Option<Escolhido> {
     let extensao = caminho
         .extension()
         .and_then(|e| e.to_str())
@@ -166,7 +172,6 @@ fn entregue(app: &AppHandle, caminho: &Path) -> Option<Escolhido> {
         return None;
     }
     let dados = caminho.metadata().ok().filter(|m| m.is_file())?;
-    app.state::<Permitidos>().permitir(caminho);
     Some(Escolhido {
         nome: caminho
             .file_name()
@@ -333,6 +338,19 @@ async fn escolher_arquivos(app: AppHandle, extensoes: Option<Vec<String>>) -> Ve
         .into_iter()
         .filter_map(|c| c.into_path().ok())
         .filter_map(|caminho| entregue(&app, &caminho))
+        .collect()
+}
+
+/// O evento nativo de soltar inclui caminhos, mas a interface so pode ler os
+/// que o proprio Windows acabou de entregar ao aplicativo.
+#[tauri::command]
+fn arquivos_soltos(app: AppHandle, caminhos: Vec<String>) -> Vec<Escolhido> {
+    caminhos
+        .iter()
+        .filter_map(|caminho| {
+            let arquivo = Path::new(caminho);
+            app.state::<Permitidos>().permitido(arquivo).then(|| descrever(arquivo)).flatten()
+        })
         .collect()
 }
 
@@ -737,22 +755,15 @@ fn arquivos_dos_argumentos<I: IntoIterator<Item = String>>(argumentos: I) -> Vec
 /// Arquivo arrastado para a janela.
 ///
 /// O Tauri pega o arrastar antes da pagina - no Windows, a pagina nunca
-/// recebe o arquivo solto, e a area "Solte seu arquivo aqui" nao fazia nada.
+/// recebe o arquivo solto. Dependendo da janela, o evento chega como evento
+/// da janela ou do webview; os dois caminhos chamam esta mesma rotina.
 /// O que chega aqui e o caminho, e ele segue o mesmo trilho do dialogo:
 /// inclusive o de arquivo grande, que nao passa pela memoria da tela.
 fn ao_arrastar(app: &AppHandle, evento: &DragDropEvent) {
     match evento {
-        DragDropEvent::Enter { .. } => {
-            let _ = app.emit("sistema:arrastando", true);
-        }
-        DragDropEvent::Leave => {
-            let _ = app.emit("sistema:arrastando", false);
-        }
         DragDropEvent::Drop { paths, .. } => {
-            let _ = app.emit("sistema:arrastando", false);
-            let soltos: Vec<Escolhido> = paths.iter().filter_map(|p| entregue(app, p)).collect();
-            if !soltos.is_empty() {
-                let _ = app.emit("sistema:soltar-arquivos", soltos);
+            for caminho in paths {
+                let _ = entregue(app, caminho);
             }
         }
         _ => {}
@@ -884,6 +895,14 @@ fn main() {
                 _ => {}
             }
         })
+        .on_webview_event(|webview, evento| {
+            if webview.label() != "principal" {
+                return;
+            }
+            if let WebviewEvent::DragDrop(arraste) = evento {
+                ao_arrastar(webview.app_handle(), arraste);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             versao,
             sistema_pronto,
@@ -893,6 +912,7 @@ fn main() {
             escolher_pasta,
             gravar_em,
             escolher_arquivos,
+            arquivos_soltos,
             ler_arquivo,
             abrir,
             abrir_no_navegador,
